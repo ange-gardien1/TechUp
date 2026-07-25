@@ -37,6 +37,7 @@
     "cors": "^2.8.6",
     "drizzle-kit": "^0.31.10",
     "express": "^5.2.1",
+    "lightningcss-win32-x64-msvc": "^1.27.0",
     "tsx": "^4.22.4",
     "typescript": "~6.0.3"
   },
