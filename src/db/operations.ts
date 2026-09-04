@@ -1,4 +1,4 @@
-import { count, sql } from 'drizzle-orm';
+import { count, desc, eq, sql } from 'drizzle-orm';
 import { db } from './client';
 import {
   customerProfiles,
@@ -471,5 +471,151 @@ export async function getDashboardSummary() {
     productCount: Number(productCountResult[0]?.count ?? 0),
     orderCount: Number(orderCountResult[0]?.count ?? 0),
     paymentCount: Number(paymentCountResult[0]?.count ?? 0),
+  };
+}
+
+export async function getAdminDashboardSummary() {
+  const [userCountResult, repairRows, productCountResult, paymentTotalResult, roleCountsResult, disputeCountResult, technicians] = await Promise.all([
+    db.select({ count: count(users.id) }).from(users),
+    db.select({
+      id: repairRequests.id,
+      customerId: repairRequests.customerId,
+      deviceType: repairRequests.deviceType,
+      brand: repairRequests.brand,
+      model: repairRequests.model,
+      issueDescription: repairRequests.issueDescription,
+      status: repairRequests.status,
+      serviceFee: repairRequests.serviceFee,
+      paymentStatus: repairRequests.paymentStatus,
+      createdAt: repairRequests.createdAt,
+      customerName: users.fullName,
+    })
+      .from(repairRequests)
+      .leftJoin(users, eq(repairRequests.customerId, users.id))
+      .orderBy(desc(repairRequests.createdAt))
+      .limit(8),
+    db.select({ count: count(products.id) }).from(products),
+    db.select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` }).from(payments),
+    db.select({ role: users.role, count: count(users.id) }).from(users).groupBy(users.role),
+    db.select({ count: count(disputes.id) }).from(disputes),
+    db.select({
+      id: users.id,
+      fullName: users.fullName,
+      email: users.email,
+    }).from(users).where(eq(users.role, 'technician')),
+  ]);
+
+  const totalRevenue = Number(paymentTotalResult[0]?.total ?? 0);
+  const openRequests = repairRows.filter((request) => !['completed', 'cancelled', 'rejected'].includes(request.status ?? '')).length;
+  const completedRequests = repairRows.filter((request) => request.status === 'completed').length;
+  const technicianCount = roleCountsResult.find((item) => item.role === 'technician')?.count ?? 0;
+  const customerCount = roleCountsResult.find((item) => item.role === 'customer')?.count ?? 0;
+  const managerCount = roleCountsResult.find((item) => item.role === 'manager')?.count ?? 0;
+  const adminCount = roleCountsResult.find((item) => item.role === 'admin')?.count ?? 0;
+
+  return {
+    userCount: Number(userCountResult[0]?.count ?? 0),
+    customerCount: Number(customerCount),
+    technicianCount: Number(technicianCount),
+    managerCount: Number(managerCount),
+    adminCount: Number(adminCount),
+    repairCount: repairRows.length,
+    productCount: Number(productCountResult[0]?.count ?? 0),
+    openRequests,
+    completedRequests,
+    totalRevenue,
+    pendingDisputes: Number(disputeCountResult[0]?.count ?? 0),
+    technicians: technicians.map((tech) => ({ id: tech.id, fullName: tech.fullName, email: tech.email })),
+    reviewQueue: repairRows.map((request) => ({
+      id: request.id,
+      customer: request.customerName ?? 'Unknown customer',
+      deviceType: request.deviceType,
+      issue: request.issueDescription,
+      status: request.status ?? 'submitted',
+      createdAt: request.createdAt,
+      amount: Number(request.serviceFee ?? 0),
+    })),
+  };
+}
+
+export async function getManagerDashboardSummary() {
+  const [requests, technicians] = await Promise.all([
+    db.select({
+      id: repairRequests.id,
+      customerId: repairRequests.customerId,
+      technicianId: repairRequests.technicianId,
+      customerName: users.fullName,
+      deviceType: repairRequests.deviceType,
+      issueDescription: repairRequests.issueDescription,
+      status: repairRequests.status,
+      preferredTime: repairRequests.preferredTime,
+      serviceFee: repairRequests.serviceFee,
+      createdAt: repairRequests.createdAt,
+    })
+      .from(repairRequests)
+      .leftJoin(users, eq(repairRequests.customerId, users.id))
+      .orderBy(desc(repairRequests.createdAt)),
+    db.select({
+      id: users.id,
+      fullName: users.fullName,
+      email: users.email,
+    })
+      .from(users)
+      .where(eq(users.role, 'technician')),
+  ]);
+
+  return {
+    technicianCount: technicians.length,
+    openRequests: requests.filter((request) => !['completed', 'cancelled', 'rejected'].includes(request.status ?? '')).length,
+    scheduledRequests: requests.filter((request) => request.status === 'scheduled').length,
+    quoteRequests: requests.filter((request) => request.status === 'customer_approval').length,
+    technicians,
+    requests: requests.map((request) => ({
+      id: request.id,
+      customer: request.customerName ?? 'Unknown customer',
+      customerId: request.customerId,
+      technicianId: request.technicianId,
+      device: request.deviceType,
+      issue: request.issueDescription,
+      status: request.status ?? 'submitted',
+      preferredTime: request.preferredTime,
+      amount: Number(request.serviceFee ?? 0),
+      createdAt: request.createdAt,
+    })),
+  };
+}
+
+export async function getTechnicianDashboardSummary(technicianId: number) {
+  const requests = await db.select({
+    id: repairRequests.id,
+    customerId: repairRequests.customerId,
+    customerName: users.fullName,
+    deviceType: repairRequests.deviceType,
+    issueDescription: repairRequests.issueDescription,
+    status: repairRequests.status,
+    preferredTime: repairRequests.preferredTime,
+    serviceFee: repairRequests.serviceFee,
+    quoteAmount: repairRequests.quoteAmount,
+    createdAt: repairRequests.createdAt,
+  })
+    .from(repairRequests)
+    .leftJoin(users, eq(repairRequests.customerId, users.id))
+    .where(eq(repairRequests.technicianId, technicianId))
+    .orderBy(desc(repairRequests.createdAt));
+
+  return {
+    assignedCount: requests.length,
+    activeJobs: requests.filter((request) => !['completed', 'cancelled', 'rejected'].includes(request.status ?? '')).length,
+    quotePending: requests.filter((request) => request.status === 'customer_approval').length,
+    requests: requests.map((request) => ({
+      id: request.id,
+      customer: request.customerName ?? 'Unknown customer',
+      device: request.deviceType,
+      issue: request.issueDescription,
+      status: request.status ?? 'submitted',
+      preferredTime: request.preferredTime,
+      amount: Number(request.quoteAmount ?? request.serviceFee ?? 0),
+      createdAt: request.createdAt,
+    })),
   };
 }

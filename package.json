@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo/metro-runtime": "~57.0.2",
     "@neondatabase/serverless": "^1.1.0",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native": "^7.3.5",
     "@tanstack/react-query": "^5.101.2",
     "@types/react-dom": "~19.2.3",
@@ -46,7 +47,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "server": "tsx server.ts",
+    "server": "tsx --env-file .env.local server.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },

@@ -14,6 +14,8 @@ export async function createRepairRequest(input: {
   preferredTime?: string;
   images?: string[];
   serviceFee?: number;
+  status?: string;
+  paymentStatus?: string;
 }) {
   const [request] = await db.insert(repairRequests).values({
     customerId: input.customerId,
@@ -26,9 +28,9 @@ export async function createRepairRequest(input: {
     longitude: input.longitude,
     preferredTime: input.preferredTime,
     images: input.images ?? [],
-    serviceFee: input.serviceFee ?? 2000,
-    status: 'pending',
-    paymentStatus: 'pending',
+    serviceFee: input.serviceFee ?? 0,
+    status: input.status ?? 'submitted',
+    paymentStatus: input.paymentStatus ?? 'pending',
   }).returning();
 
   await db.insert(notifications).values({
@@ -44,7 +46,7 @@ export async function createRepairRequest(input: {
 
 export async function assignRepairRequest(repairRequestId: number, technicianId: number, serviceFee: number) {
   const [request] = await db.update(repairRequests)
-    .set({ technicianId, serviceFee, status: 'assigned' })
+    .set({ technicianId, serviceFee, status: 'technician_assigned', updatedAt: new Date() })
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
@@ -52,6 +54,80 @@ export async function assignRepairRequest(repairRequestId: number, technicianId:
     { userId: request.customerId ?? 0, title: 'Technician assigned', body: 'A technician has been assigned to your request.', type: 'repair', referenceId: request.id },
     { userId: technicianId, title: 'New job assigned', body: 'A new repair request is ready for your review.', type: 'job', referenceId: request.id },
   ]);
+
+  return request;
+}
+
+export async function setRepairSchedule(repairRequestId: number, preferredTime: string, technicianId?: number | null, note?: string) {
+  const [request] = await db.update(repairRequests)
+    .set({ preferredTime, technicianId: technicianId ?? repairRequests.technicianId, status: 'scheduled', updatedAt: new Date() })
+    .where(eq(repairRequests.id, repairRequestId))
+    .returning();
+
+  await db.insert(notifications).values({
+    userId: request.customerId ?? 0,
+    title: 'Service schedule confirmed',
+    body: note ? `The repair has been scheduled for ${preferredTime}. ${note}` : `The repair has been scheduled for ${preferredTime}.`,
+    type: 'repair',
+    referenceId: request.id,
+  });
+
+  return request;
+}
+
+export async function rejectIncompleteRequest(repairRequestId: number, reason: string) {
+  const [request] = await db.update(repairRequests)
+    .set({ status: 'rejected', updatedAt: new Date() })
+    .where(eq(repairRequests.id, repairRequestId))
+    .returning();
+
+  await db.insert(notifications).values({
+    userId: request.customerId ?? 0,
+    title: 'Request rejected',
+    body: reason || 'Your request has been rejected because the required information is missing or incomplete.',
+    type: 'repair',
+    referenceId: request.id,
+  });
+
+  return request;
+}
+
+export async function cancelRepairRequest(repairRequestId: number, reason?: string) {
+  const [request] = await db.update(repairRequests)
+    .set({ status: 'cancelled', paymentStatus: 'cancelled', updatedAt: new Date() })
+    .where(eq(repairRequests.id, repairRequestId))
+    .returning();
+
+  await db.insert(notifications).values({
+    userId: request.customerId ?? 0,
+    title: 'Request stopped',
+    body: reason || 'Your repair request has been stopped and the company has been notified.',
+    type: 'repair',
+    referenceId: request.id,
+  });
+
+  return request;
+}
+
+export async function escalateRepairRequestToAdmin(repairRequestId: number, reason?: string) {
+  const [request] = await db.update(repairRequests)
+    .set({ status: 'escalated', updatedAt: new Date() })
+    .where(eq(repairRequests.id, repairRequestId))
+    .returning();
+
+  const admins = await db.select().from(users).where(eq(users.role, 'admin'));
+
+  if (admins.length > 0) {
+    await db.insert(notifications).values(
+      admins.map((admin) => ({
+        userId: admin.id,
+        title: 'Manager escalation',
+        body: reason || 'A repair request has been escalated for admin review and decision-making.',
+        type: 'admin',
+        referenceId: request.id,
+      })),
+    );
+  }
 
   return request;
 }
@@ -73,27 +149,38 @@ export async function confirmServiceFee(repairRequestId: number) {
   return request;
 }
 
-export async function createRepairQuote(repairRequestId: number, technicianId: number, input: { laborCost: number; sparePartsCost: number; notes?: string }) {
-  const total = input.laborCost + input.sparePartsCost;
+export async function createRepairQuote(repairRequestId: number, technicianId: number, input: { laborCost: number; sparePartsCost: number; notes?: string; diagnosis?: string; quantity?: number; currency?: string; totalDue?: number }) {
+  const laborCost = Number(input.laborCost ?? 0);
+  const sparePartsCost = Number(input.sparePartsCost ?? 0);
+  const quantity = Number(input.quantity ?? 1);
+  const total = Number(input.totalDue ?? laborCost + sparePartsCost);
+  const diagnosis = input.diagnosis ?? 'General diagnosis completed.';
+  const noteText = [
+    input.notes ?? 'Customer approval required before work begins.',
+    `Diagnosis: ${diagnosis}`,
+    `Quantity: ${quantity}`,
+    `Total due: ${Number(total).toLocaleString()} ${input.currency ?? 'RWF'}`,
+  ].join(' | ');
+
   const [quote] = await db.insert(repairQuotes).values({
     repairRequestId,
     technicianId,
     amount: total,
     laborHours: 1,
     estimatedCompletion: 'Within 24 hours',
-    notes: input.notes,
+    notes: noteText,
     status: 'pending',
   }).returning();
 
   const [request] = await db.update(repairRequests)
-    .set({ quoteAmount: total, status: 'quoted' })
+    .set({ technicianId, quoteAmount: total, status: 'customer_approval', updatedAt: new Date() })
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
   await db.insert(notifications).values({
     userId: request.customerId ?? 0,
     title: 'Repair quote ready',
-    body: 'A repair quote has been prepared for your approval.',
+    body: `A repair quote has been prepared for ${request.deviceType || 'your device'} for ${Number(total).toLocaleString()} ${input.currency ?? 'RWF'}. Please review and approve or reject it.`,
     type: 'quote',
     referenceId: request.id,
   });
@@ -103,7 +190,7 @@ export async function createRepairQuote(repairRequestId: number, technicianId: n
 
 export async function approveRepairQuote(repairRequestId: number) {
   const [request] = await db.update(repairRequests)
-    .set({ status: 'in-progress' })
+    .set({ status: 'repair_in_progress', paymentStatus: 'pending', updatedAt: new Date() })
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
@@ -120,14 +207,14 @@ export async function approveRepairQuote(repairRequestId: number) {
 
 export async function rejectRepairQuote(repairRequestId: number) {
   const [request] = await db.update(repairRequests)
-    .set({ status: 'cancelled' })
+    .set({ status: 'rejected', updatedAt: new Date() })
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
   await db.insert(notifications).values({
     userId: request.customerId ?? 0,
     title: 'Quote rejected',
-    body: 'The repair quote was rejected. The request was cancelled.',
+    body: 'The repair quote was rejected and the request was sent back for review.',
     type: 'repair',
     referenceId: request.id,
   });
@@ -137,7 +224,7 @@ export async function rejectRepairQuote(repairRequestId: number) {
 
 export async function completeRepair(repairRequestId: number, notes: string, photoUrl?: string) {
   const [request] = await db.update(repairRequests)
-    .set({ status: 'completed' })
+    .set({ status: 'completed', completedAt: new Date(), updatedAt: new Date() })
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
@@ -170,7 +257,7 @@ export async function completeRepair(repairRequestId: number, notes: string, pho
 
 export async function finalizePayment(repairRequestId: number, amount: number, paymentMethod: string) {
   const [request] = await db.update(repairRequests)
-    .set({ paymentStatus: 'paid' })
+    .set({ paymentStatus: 'paid', updatedAt: new Date() })
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 

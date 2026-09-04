@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { Link, Redirect } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ArrowRight,
@@ -15,52 +15,22 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-const roles = [
-  {
-    title: "Customer",
-    subtitle: "Book repairs and purchase devices",
-    icon: "👤",
-    color: "#06B6D4",
-    route: "/customer",
-  },
-  {
-    title: "Technician",
-    subtitle: "Accept and complete repair jobs",
-    icon: "🛠️",
-    color: "#10B981",
-    route: "/technician",
-  },
-  {
-    title: "Manager",
-    subtitle: "Coordinate technicians",
-    icon: "📊",
-    color: "#F59E0B",
-    route: "/manager",
-  },
-  {
-    title: "Admin",
-    subtitle: "Manage the entire platform",
-    icon: "⚙️",
-    color: "#8B5CF6",
-    route: "/admin",
-  },
-];
+import { useAuth } from "../src/providers/AuthProvider";
 
 const stats = [
   {
     value: "24/7",
-    label: "Support",
+    label: "Service desk",
     icon: ShieldCheck,
   },
   {
-    value: "120+",
-    label: "Technicians",
+    value: "1 team",
+    label: "Company operations",
     icon: Users,
   },
   {
     value: "100%",
-    label: "Secure",
+    label: "Internal control",
     icon: Database,
   },
 ];
@@ -68,12 +38,12 @@ const stats = [
 const actions = [
   {
     title: "Book Repair",
-    route: "/customer",
+    route: "/repair-flow",
     icon: Wrench,
   },
   {
     title: "Browse Devices",
-    route: "/customer",
+    route: "/repair-flow",
     icon: Smartphone,
   },
   {
@@ -89,6 +59,21 @@ const actions = [
 ];
 
 export default function HomeScreen() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-[#09090B]">
+        <Text className="text-white">Loading...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (user) {
+    const destination = `/${user.role}`;
+    return <Redirect href={destination as any} />;
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-[#09090B]">
 
@@ -134,20 +119,20 @@ export default function HomeScreen() {
           </View>
 
           <Text className="text-white text-5xl font-black mt-8 leading-[55px]">
-            Repair{"\n"}Anything.
+            Centralized{"\n"}Service Control.
           </Text>
 
           <Text className="text-blue-100 text-base mt-5 leading-7">
 
-            Connect with certified technicians,
-            request repairs, track progress
-            and pay securely.
+            A company-led service platform for managing requests,
+            technician assignments, service tracking, and customer support
+            from one secure system.
 
           </Text>
 
           <View className="flex-row mt-8 gap-4">
 
-            <Link href="/customer" asChild>
+            <Link href="/repair-flow" asChild>
 
               <Pressable className="flex-1 bg-white rounded-2xl py-4">
 
@@ -159,12 +144,12 @@ export default function HomeScreen() {
 
             </Link>
 
-            <Link href="/repair-flow" asChild>
+            <Link href="/login" asChild>
 
               <Pressable className="flex-1 border border-white rounded-2xl py-4">
 
                 <Text className="text-center text-white font-bold">
-                  Explore
+                  Sign In
                 </Text>
 
               </Pressable>
@@ -180,7 +165,7 @@ export default function HomeScreen() {
         <View className="px-5 mt-6">
 
           <Text className="text-white text-xl font-bold mb-4">
-            Platform Highlights
+            Company Operations
           </Text>
 
           <View className="flex-row flex-wrap justify-between gap-3">
@@ -230,7 +215,7 @@ export default function HomeScreen() {
         <View className="px-5 mt-8">
 
           <Text className="text-white text-xl font-bold mb-4">
-            Quick Actions
+            Quick Access
           </Text>
 
           <View className="flex-row flex-wrap justify-between gap-4">
@@ -412,153 +397,53 @@ export default function HomeScreen() {
 
         </View>
 
-        {/* ROLES */}
+        {/* WORKFLOW */}
 
         <View className="mt-10 px-5">
 
           <Text className="text-2xl font-black text-white">
-            Choose Your Role
+            How the company works
           </Text>
 
           <Text className="mt-2 text-zinc-400">
-            Continue to your workspace
+            A centralized repair business model where every request, technician assignment,
+            and service update is managed from one internal system.
           </Text>
 
           <View className="mt-6 space-y-4">
-            {roles.map((role) => (
-            <Link
-              key={role.title}
-              href={role.route as any}
-              asChild
-            >
-              <Pressable className="overflow-hidden rounded-[28px] border border-zinc-800 bg-[#18181B] active:opacity-90">
-
-                {/* Top Accent */}
-                <View
-                  style={{
-                    backgroundColor: role.color,
-                    height: 6,
-                    width: "100%",
-                  }}
-                />
-
-                <View className="p-6">
-
-                  <View className="flex-row items-center justify-between">
-
-                    <View className="flex-row items-center flex-1">
-
-                      <View
-                        style={{
-                          backgroundColor: `${role.color}20`,
-                        }}
-                        className="h-16 w-16 items-center justify-center rounded-3xl"
-                      >
-                        <Text className="text-3xl">
-                          {role.icon}
-                        </Text>
-                      </View>
-
-                      <View className="ml-4 flex-1">
-
-                        <Text className="text-2xl font-black text-white">
-                          {role.title}
-                        </Text>
-
-                        <Text className="mt-1 text-zinc-400">
-                          {role.subtitle}
-                        </Text>
-
-                      </View>
-
-                    </View>
-
-                    <View
-                      style={{
-                        backgroundColor: `${role.color}20`,
-                      }}
-                      className="h-12 w-12 items-center justify-center rounded-full"
-                    >
-                      <ArrowRight
-                        size={22}
-                        color={role.color}
-                      />
-                    </View>
-
-                  </View>
-
-                  {/* Highlights */}
-
-                  <View className="mt-6">
-
-                    <View className="mb-3 flex-row items-center">
-
-                      <View
-                        style={{
-                          backgroundColor: role.color,
-                        }}
-                        className="mr-3 h-2.5 w-2.5 rounded-full"
-                      />
-
-                      <Text className="text-zinc-300">
-                        Fast and secure access
-                      </Text>
-
-                    </View>
-
-                    <View className="mb-3 flex-row items-center">
-
-                      <View
-                        style={{
-                          backgroundColor: role.color,
-                        }}
-                        className="mr-3 h-2.5 w-2.5 rounded-full"
-                      />
-
-                      <Text className="text-zinc-300">
-                        Real-time notifications
-                      </Text>
-
-                    </View>
-
-                    <View className="flex-row items-center">
-
-                      <View
-                        style={{
-                          backgroundColor: role.color,
-                        }}
-                        className="mr-3 h-2.5 w-2.5 rounded-full"
-                      />
-
-                      <Text className="text-zinc-300">
-                        Personalized dashboard
-                      </Text>
-
-                    </View>
-
-                  </View>
-
-                  {/* Button */}
-
-                  <Pressable
-                    style={{
-                      backgroundColor: role.color,
-                    }}
-                    className="mt-6 rounded-2xl py-4"
-                  >
-
-                    <Text className="text-center text-base font-bold text-white">
-                      Continue as {role.title}
-                    </Text>
-
-                  </Pressable>
-
-                </View>
-
-              </Pressable>
-            </Link>
-          ))}
-                    </View>
+            {[
+              {
+                step: "01",
+                title: "Request a repair",
+                text: "Tell us the device, the issue, and the best time to visit or collect it.",
+              },
+              {
+                step: "02",
+                title: "Get a clear quote",
+                text: "The technician checks the fault and shares the repair cost before proceeding.",
+              },
+              {
+                step: "03",
+                title: "Receive fast service",
+                text: "Repair is completed with updates, quality checks, and customer follow-up.",
+              },
+            ].map((item) => (
+              <View
+                key={item.step}
+                className="rounded-[28px] border border-zinc-800 bg-[#18181B] p-5"
+              >
+                <Text className="text-sm font-bold uppercase tracking-[0.25em] text-cyan-400">
+                  {item.step}
+                </Text>
+                <Text className="mt-3 text-xl font-black text-white">
+                  {item.title}
+                </Text>
+                <Text className="mt-2 text-zinc-300 leading-6">
+                  {item.text}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
 
         {/* TRUST SECTION */}
@@ -649,7 +534,7 @@ export default function HomeScreen() {
               payments and technical questions.
             </Text>
 
-            <Link href="/customer" asChild>
+            <Link href="/login" asChild>
 
               <Pressable className="mt-8 rounded-2xl bg-white py-4">
 
