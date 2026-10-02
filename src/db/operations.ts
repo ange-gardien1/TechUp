@@ -144,6 +144,7 @@ export async function initializeDatabase() {
       user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       message TEXT NOT NULL,
       status TEXT,
+      is_customer_visible BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
   `);
@@ -384,6 +385,7 @@ export async function initializeDatabase() {
       userId: technicianUser.id,
       message: 'Technician started diagnostic checks',
       status: 'in-progress',
+      isCustomerVisible: false,
     });
 
     await db.insert(orders).values({

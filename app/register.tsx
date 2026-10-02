@@ -1,7 +1,6 @@
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from '../src/components/ThemedNative';
 import { useAuth } from '../src/providers/AuthProvider';
 
 export default function RegisterScreen() {
@@ -33,14 +32,8 @@ export default function RegisterScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-[#09090B]">
+    <View className="flex-1 bg-[#09111F]">
       <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 48 }}>
-        <Link href="/" asChild>
-          <Pressable className="mb-8">
-            <Text className="text-base font-semibold text-cyan-300">← Back</Text>
-          </Pressable>
-        </Link>
-
         <View className="mb-8">
           <Text className="text-4xl font-black text-white">Create customer account</Text>
           <Text className="mt-3 text-base text-slate-300">
@@ -112,6 +105,6 @@ export default function RegisterScreen() {
           </Link>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

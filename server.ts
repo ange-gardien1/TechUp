@@ -4,6 +4,8 @@ import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import crypto from 'node:crypto';
+import { db } from './src/db/client';
+import { customerProfiles, users } from './src/db/schema';
 
 const envPath = path.resolve(process.cwd(), '.env.local');
 if (fs.existsSync(envPath)) {
@@ -21,13 +23,14 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const { db } = require('./src/db/client');
-const { users, products, repairRequests, serviceCategories, orders, payments, notifications, repairQuotes } = require('./src/db/schema');
-const { eq, desc } = require('drizzle-orm');
+const { products, repairRequests, serviceCategories, orders, payments, notifications, repairQuotes, ratings } = require('./src/db/schema');
+const { and, eq, desc, inArray } = require('drizzle-orm');
 const {
+  addTechnicianRepairNote,
   approveRepairQuote,
   assignRepairRequest,
   cancelRepairRequest,
+  closeRepairRequest,
   completeRepair,
   confirmServiceFee,
   createRepairQuote,
@@ -63,6 +66,8 @@ function sanitizeUser(row: any) {
     phone: row.phone,
     role: row.role,
     status: row.status,
+    isVerified: row.is_verified ?? row.isVerified,
+    createdAt: row.created_at ?? row.createdAt,
   };
 }
 
@@ -254,6 +259,147 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
+app.get('/users/:id/profile', async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    return res.status(400).json({ error: 'A valid user ID is required.' });
+  }
+
+  try {
+    const [account] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!account) {
+      return res.status(404).json({ error: 'User profile not found.' });
+    }
+
+    const [customerProfile] = account.role === 'customer'
+      ? await db.select().from(customerProfiles).where(eq(customerProfiles.userId, userId)).limit(1)
+      : [];
+
+    return res.json({
+      user: sanitizeUser(account),
+      customerProfile: customerProfile
+        ? {
+            address: customerProfile.address,
+            city: customerProfile.city,
+            emergencyContactName: customerProfile.emergencyContactName,
+            emergencyContactPhone: customerProfile.emergencyContactPhone,
+            preferredLanguage: customerProfile.preferredLanguage,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error('User profile lookup error', error);
+    return res.status(500).json({ error: 'Unable to load user profile.' });
+  }
+});
+
+app.put('/users/:id/profile', async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    return res.status(400).json({ error: 'A valid user ID is required.' });
+  }
+
+  const body = req.body;
+  const fullName = typeof body?.fullName === 'string' ? body.fullName.trim() : '';
+  const phone = typeof body?.phone === 'string' ? body.phone.trim() : '';
+  const profileFields = [
+    ['address', 'address', 300],
+    ['city', 'city', 100],
+    ['emergencyContactName', 'emergencyContactName', 120],
+    ['emergencyContactPhone', 'emergencyContactPhone', 40],
+  ] as const;
+  const customerProfileUpdate: {
+    address?: string | null;
+    city?: string | null;
+    emergencyContactName?: string | null;
+    emergencyContactPhone?: string | null;
+    preferredLanguage?: string;
+  } = {};
+
+  if (!fullName || fullName.length > 120) {
+    return res.status(400).json({ error: 'Full name is required and must be 120 characters or fewer.' });
+  }
+  if (phone.length > 40) {
+    return res.status(400).json({ error: 'Phone number must be 40 characters or fewer.' });
+  }
+
+  for (const [inputKey, profileKey, maxLength] of profileFields) {
+    if (body?.[inputKey] === undefined) continue;
+    const value = body[inputKey];
+    if (value !== null && typeof value !== 'string') {
+      return res.status(400).json({ error: `Invalid ${inputKey}.` });
+    }
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (normalized.length > maxLength) {
+      return res.status(400).json({ error: `${inputKey} must be ${maxLength} characters or fewer.` });
+    }
+    customerProfileUpdate[profileKey] = normalized || null;
+  }
+
+  if (body?.preferredLanguage !== undefined) {
+    if (!['en', 'fr', 'rw'].includes(body.preferredLanguage)) {
+      return res.status(400).json({ error: 'Preferred language must be English, French, or Kinyarwanda.' });
+    }
+    customerProfileUpdate.preferredLanguage = body.preferredLanguage;
+  }
+
+  try {
+    const [account] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!account) {
+      return res.status(404).json({ error: 'User profile not found.' });
+    }
+    if (account.role !== 'customer' && Object.keys(customerProfileUpdate).length > 0) {
+      return res.status(400).json({ error: 'Customer details are only available for customer accounts.' });
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const [updatedAccount] = await tx.update(users)
+        .set({ fullName, phone: phone || null, updatedAt: new Date() })
+        .where(eq(users.id, userId))
+        .returning();
+
+      if (Object.keys(customerProfileUpdate).length > 0) {
+        const [existingProfile] = await tx.select().from(customerProfiles)
+          .where(eq(customerProfiles.userId, userId))
+          .limit(1);
+
+        if (existingProfile) {
+          await tx.update(customerProfiles)
+            .set(customerProfileUpdate)
+            .where(eq(customerProfiles.id, existingProfile.id));
+        } else {
+          await tx.insert(customerProfiles).values({
+            userId,
+            ...customerProfileUpdate,
+          });
+        }
+      }
+
+      const [updatedCustomerProfile] = updatedAccount.role === 'customer'
+        ? await tx.select().from(customerProfiles).where(eq(customerProfiles.userId, userId)).limit(1)
+        : [];
+
+      return { account: updatedAccount, customerProfile: updatedCustomerProfile };
+    });
+
+    return res.json({
+      user: sanitizeUser(result.account),
+      customerProfile: result.customerProfile
+        ? {
+            address: result.customerProfile.address,
+            city: result.customerProfile.city,
+            emergencyContactName: result.customerProfile.emergencyContactName,
+            emergencyContactPhone: result.customerProfile.emergencyContactPhone,
+            preferredLanguage: result.customerProfile.preferredLanguage,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error('User profile update error', error);
+    return res.status(500).json({ error: 'Unable to save user profile.' });
+  }
+});
+
 app.get('/users', async (_req, res) => {
   const rows = await db.select().from(users);
   res.json(rows);
@@ -282,6 +428,24 @@ app.delete('/users/:id', async (req, res) => {
 app.get('/repair-requests', async (_req, res) => {
   const rows = await db.select().from(repairRequests);
   res.json(rows);
+});
+
+app.get('/customers/:id/rated-repair-requests', async (req, res) => {
+  const rows = await db.select({ repairRequestId: ratings.repairRequestId })
+    .from(ratings)
+    .where(eq(ratings.customerId, Number(req.params.id)));
+  const repairRequestIds = [...new Set(rows.map((row: { repairRequestId: number }) => row.repairRequestId))];
+
+  if (repairRequestIds.length > 0) {
+    await db.update(repairRequests)
+      .set({ status: 'closed', updatedAt: new Date() })
+      .where(and(
+        eq(repairRequests.status, 'completed'),
+        inArray(repairRequests.id, repairRequestIds),
+      ));
+  }
+
+  res.json(repairRequestIds);
 });
 
 app.post('/repair-requests', async (req, res) => {
@@ -363,6 +527,34 @@ app.get('/repair-requests/:id/quotes', async (req, res) => {
   res.json({ quote: rows[0] ?? null });
 });
 
+app.post('/repair-requests/:id/diagnosis', async (req, res) => {
+  try {
+    const repairRequestId = Number(req.params.id);
+    const userId = Number(req.body?.userId ?? 0);
+    const note = String(req.body?.note ?? '').trim();
+    const diagnosis = String(req.body?.diagnosis ?? '').trim();
+
+    if (!userId) {
+      return res.status(400).json({ error: 'A technician user id is required.' });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user || user.role !== 'technician') {
+      return res.status(403).json({ error: 'Only a technician can add a diagnosis update.' });
+    }
+
+    if (!note && !diagnosis) {
+      return res.status(400).json({ error: 'A diagnosis note is required.' });
+    }
+
+    const update = await addTechnicianRepairNote(repairRequestId, userId, note || diagnosis, 'diagnosis_update');
+    return res.json(update);
+  } catch (error) {
+    console.error('Technician diagnosis update error', error);
+    return res.status(500).json({ error: 'Unable to save the diagnosis update.' });
+  }
+});
+
 app.post('/repair-requests/:id/quotes', async (req, res) => {
   const repairRequestId = Number(req.params.id);
   const requestRow = await db.select().from(repairRequests).where(eq(repairRequests.id, repairRequestId));
@@ -372,18 +564,50 @@ app.post('/repair-requests/:id/quotes', async (req, res) => {
     return res.status(404).json({ error: 'Repair request not found.' });
   }
 
+  const userId = Number(req.body?.userId ?? 0);
+  if (!userId) {
+    return res.status(400).json({ error: 'A user id is required to send a quotation.' });
+  }
+
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+  if (!user || !['admin', 'manager'].includes(String(user.role ?? ''))) {
+    return res.status(403).json({ error: 'Only an admin or manager can send a quotation.' });
+  }
+
   const currentStatus = String(request.status ?? 'submitted').toLowerCase();
   if (!['scheduled', 'customer_approval'].includes(currentStatus)) {
     return res.status(400).json({ error: 'This request must be reviewed, assigned, and scheduled before a quotation can be sent.' });
   }
 
-  const row = await createRepairQuote(repairRequestId, Number(req.body.technicianId), req.body);
+  const row = await createRepairQuote(repairRequestId, Number(req.body.technicianId ?? request.technicianId ?? 0), req.body);
   res.json(row);
 });
 
 app.get('/notifications/:userId', async (req, res) => {
   const rows = await db.select().from(notifications).where(eq(notifications.userId, Number(req.params.userId))).orderBy(desc(notifications.createdAt));
   res.json(rows);
+});
+
+app.post('/notifications/:userId/read', async (req, res) => {
+  const userId = Number(req.params.userId);
+  const notificationIds = Array.isArray(req.body?.notificationIds)
+    ? [...new Set(req.body.notificationIds.map(Number).filter(Number.isInteger))]
+    : [];
+
+  if (!userId || notificationIds.length === 0) {
+    return res.json({ updated: 0 });
+  }
+
+  const updatedRows = await db.update(notifications)
+    .set({ isRead: true })
+    .where(and(
+      eq(notifications.userId, userId),
+      eq(notifications.isRead, false),
+      inArray(notifications.id, notificationIds),
+    ))
+    .returning({ id: notifications.id });
+
+  res.json({ updated: updatedRows.length });
 });
 
 app.post('/repair-requests/:id/approve-quote', async (req, res) => {
@@ -397,8 +621,51 @@ app.post('/repair-requests/:id/reject-quote', async (req, res) => {
 });
 
 app.post('/repair-requests/:id/complete', async (req, res) => {
-  const row = await completeRepair(Number(req.params.id), req.body.notes ?? 'Repair completed', req.body.photoUrl);
-  res.json(row);
+  try {
+    const userId = Number(req.body?.userId ?? 0);
+    const notes = String(req.body?.notes ?? '').trim();
+
+    if (!userId) {
+      return res.status(400).json({ error: 'A technician user id is required.' });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user || user.role !== 'technician') {
+      return res.status(403).json({ error: 'Only a technician can complete a repair request.' });
+    }
+
+    if (!notes) {
+      return res.status(400).json({ error: 'A completion note is required.' });
+    }
+
+    const row = await completeRepair(Number(req.params.id), notes, req.body.photoUrl);
+    return res.json(row);
+  } catch (error) {
+    console.error('Complete repair request error', error);
+    return res.status(500).json({ error: 'Unable to complete the repair request.' });
+  }
+});
+
+app.post('/repair-requests/:id/close', async (req, res) => {
+  try {
+    const userId = Number(req.body?.userId ?? 0);
+    const reason = String(req.body?.reason ?? 'Manager approved the repair completion and closed the request.');
+
+    if (!userId) {
+      return res.status(400).json({ error: 'A manager user id is required.' });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user || user.role !== 'manager') {
+      return res.status(403).json({ error: 'Only a manager can approve closure.' });
+    }
+
+    const row = await closeRepairRequest(Number(req.params.id), userId, reason);
+    return res.json(row);
+  } catch (error) {
+    console.error('Close repair request error', error);
+    return res.status(500).json({ error: 'Unable to close the repair request.' });
+  }
 });
 
 app.post('/repair-requests/:id/final-payment', async (req, res) => {
@@ -407,8 +674,46 @@ app.post('/repair-requests/:id/final-payment', async (req, res) => {
 });
 
 app.post('/repair-requests/:id/ratings', async (req, res) => {
-  const row = await submitRating(Number(req.params.id), Number(req.body.customerId), Number(req.body.technicianId), Number(req.body.score), req.body.comment);
-  res.json(row);
+  try {
+    const repairRequestId = Number(req.params.id);
+    const customerId = Number(req.body?.customerId ?? 0);
+    const technicianId = Number(req.body?.technicianId ?? 0);
+    const score = Number(req.body?.score ?? 0);
+    const comment = String(req.body?.comment ?? '').trim();
+
+    if (!customerId || !technicianId) {
+      return res.status(400).json({ error: 'Customer and technician ids are required.' });
+    }
+
+    if (score < 1 || score > 5) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5.' });
+    }
+
+    const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, repairRequestId));
+    if (!request) {
+      return res.status(404).json({ error: 'Repair request not found.' });
+    }
+
+    if (request.customerId !== customerId || request.technicianId !== technicianId) {
+      return res.status(403).json({ error: 'This repair request cannot be rated by this customer.' });
+    }
+
+    if (!['completed', 'closed'].includes(String(request.status ?? '').toLowerCase())) {
+      return res.status(409).json({ error: 'Only completed repair requests can be rated.' });
+    }
+
+    const [existingRating] = await db.select().from(ratings)
+      .where(eq(ratings.repairRequestId, repairRequestId));
+    if (existingRating) {
+      return res.status(409).json({ error: 'This repair request has already been rated.' });
+    }
+
+    const row = await submitRating(repairRequestId, customerId, technicianId, score, comment || undefined);
+    return res.json(row);
+  } catch (error) {
+    console.error('Submit rating error', error);
+    return res.status(500).json({ error: 'Unable to submit technician rating.' });
+  }
 });
 
 app.delete('/repair-requests/:id', async (req, res) => {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Platform, ScrollView, Text, View } from '../src/components/ThemedNative';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
@@ -44,16 +43,16 @@ export default function DatabaseScreen() {
   }, []);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0B0B0F]">
+    <View className="flex-1 bg-[#09111F]">
       <ScrollView className="flex-1 px-6 py-8" contentContainerStyle={{ paddingBottom: 32 }}>
-        <View className="rounded-[24px] border border-[#2B2F36] bg-[#14161A] p-6">
+        <View className="rounded-[24px] border border-slate-700 bg-[#111827] p-6">
           <Text className="text-3xl font-semibold text-white">Live database view</Text>
           <Text className="mt-3 text-base text-slate-300">
             Monitor your Neon-backed TeckUP platform and keep the service layer connected to real data.
           </Text>
         </View>
 
-        <View className="mt-6 rounded-[24px] border border-[#2B2F36] bg-[#1B1E24] p-5">
+        <View className="mt-6 rounded-[24px] border border-slate-700 bg-[#0F172A] p-5">
           <Text className="text-sm font-semibold uppercase tracking-[0.25em] text-cyan-400">Platform snapshot</Text>
           {loading ? (
             <View className="mt-4 items-center py-4">
@@ -64,15 +63,15 @@ export default function DatabaseScreen() {
             <Text className="mt-4 text-rose-400">{error}</Text>
           ) : summary ? (
             <View className="mt-4 flex-row flex-wrap gap-3">
-              <View className="min-w-[140px] flex-1 rounded-[18px] border border-[#2B2F36] bg-[#14161A] p-4">
+              <View className="min-w-[140px] flex-1 rounded-[18px] border border-slate-700 bg-[#111827] p-4">
                 <Text className="text-2xl font-semibold text-white">{summary.userCount}</Text>
                 <Text className="mt-1 text-sm text-slate-400">Users</Text>
               </View>
-              <View className="min-w-[140px] flex-1 rounded-[18px] border border-[#2B2F36] bg-[#14161A] p-4">
+              <View className="min-w-[140px] flex-1 rounded-[18px] border border-slate-700 bg-[#111827] p-4">
                 <Text className="text-2xl font-semibold text-white">{summary.repairCount}</Text>
                 <Text className="mt-1 text-sm text-slate-400">Repair requests</Text>
               </View>
-              <View className="min-w-[140px] flex-1 rounded-[18px] border border-[#2B2F36] bg-[#14161A] p-4">
+              <View className="min-w-[140px] flex-1 rounded-[18px] border border-slate-700 bg-[#111827] p-4">
                 <Text className="text-2xl font-semibold text-white">{summary.productCount}</Text>
                 <Text className="mt-1 text-sm text-slate-400">Products</Text>
               </View>
@@ -80,13 +79,13 @@ export default function DatabaseScreen() {
           ) : null}
         </View>
 
-        <View className="mt-6 rounded-[24px] border border-[#2B2F36] bg-[#1B1E24] p-5">
+        <View className="mt-6 rounded-[24px] border border-slate-700 bg-[#0F172A] p-5">
           <Text className="text-sm font-semibold uppercase tracking-[0.25em] text-emerald-400">Backend status</Text>
           <Text className="mt-3 text-slate-300">
             API health and database summary routes are wired so your app can display live backend data from the Neon service.
           </Text>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

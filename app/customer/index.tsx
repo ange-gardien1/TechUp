@@ -1,7 +1,7 @@
-import { Link, Redirect, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Link, Redirect, useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Archive } from 'lucide-react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
 import { apiRequest } from '../../src/lib/api';
 import { formatRepairStatus, getRepairStatusIndex, repairStatusFlow } from '../../src/lib/repairWorkflow';
 import { useAuth } from '../../src/providers/AuthProvider';
@@ -22,17 +22,6 @@ type RepairRequest = {
   createdAt?: string | null;
 };
 
-type NotificationItem = {
-  id: number;
-  userId: number;
-  title: string;
-  body: string;
-  type: string;
-  referenceId?: number | null;
-  isRead: boolean;
-  createdAt: string;
-};
-
 type QuotePreview = {
   id: number;
   repairRequestId: number;
@@ -43,32 +32,22 @@ type QuotePreview = {
   createdAt: string;
 };
 
-const quickActions = [
-  { label: 'Book repair', route: '/repair-flow' },
-  { label: 'Track request', route: '/customer' },
-  { label: 'Database', route: '/database' },
-  { label: 'Get support', route: '/login' },
-];
-
 export default function CustomerScreen() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const customerId = user?.id;
   const [repairs, setRepairs] = useState<RepairRequest[]>([]);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [quotePreview, setQuotePreview] = useState<QuotePreview | null>(null);
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
+  const [ratingScore, setRatingScore] = useState<number>(5);
+  const [ratingComment, setRatingComment] = useState<string>('');
+  const [ratedRequestIds, setRatedRequestIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showNotifications, setShowNotifications] = useState(false);
 
   const selectedRequest = useMemo(
     () => repairs.find((request) => request.id === selectedRequestId) ?? repairs[0] ?? null,
     [repairs, selectedRequestId],
-  );
-
-  const unreadQuoteCount = useMemo(
-    () => notifications.filter((item) => item.type === 'quote' && !item.isRead).length,
-    [notifications],
   );
 
   const quoteDetails = useMemo(() => {
@@ -124,48 +103,56 @@ export default function CustomerScreen() {
     });
   }, [selectedRequest]);
 
-  async function handleLogout() {
-    await logout();
-    router.replace('/');
-  }
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
 
-  useEffect(() => {
     async function loadCustomerRepairs() {
-      if (!user) {
+      if (!customerId) {
         setLoading(false);
         return;
       }
 
       try {
         setLoading(true);
-        const rows = await apiRequest<RepairRequest[]>('/repair-requests');
-        const customerRepairs = rows.filter((request) => request.customerId === user.id).sort((a, b) => Number(b.id) - Number(a.id));
+        const [rows, ratedRequestIds] = await Promise.all([
+          apiRequest<RepairRequest[]>('/repair-requests'),
+          apiRequest<number[]>(`/customers/${customerId}/rated-repair-requests`).catch(() => []),
+        ]);
+        if (!isActive) {
+          return;
+        }
+        const ratedRequestIdSet = new Set(ratedRequestIds);
+        const customerRepairs = rows
+          .filter((request) =>
+            request.customerId === customerId &&
+            String(request.status ?? '').toLowerCase() !== 'closed' &&
+            !ratedRequestIdSet.has(request.id),
+          )
+          .sort((a, b) => Number(b.id) - Number(a.id));
         setRepairs(customerRepairs);
-        setSelectedRequestId((previous) => previous ?? customerRepairs[0]?.id ?? null);
+        setRatedRequestIds(ratedRequestIdSet);
+        setSelectedRequestId((previous) =>
+          customerRepairs.some((request) => request.id === previous) ? previous : customerRepairs[0]?.id ?? null,
+        );
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unable to load your repairs');
+        if (isActive) {
+          setError(err instanceof Error ? err.message : 'Unable to load your repairs');
+        }
       } finally {
-        setLoading(false);
-      }
-    }
-
-    async function loadNotifications() {
-      if (!user) {
-        return;
-      }
-
-      try {
-        const rows = await apiRequest<NotificationItem[]>(`/notifications/${user.id}`);
-        setNotifications(rows);
-      } catch (error) {
-        console.error('Unable to load customer notifications', error);
+        if (isActive) {
+          setLoading(false);
+        }
       }
     }
 
     loadCustomerRepairs();
-    loadNotifications();
-  }, [user?.id]);
+      return () => {
+        isActive = false;
+      };
+    }, [customerId]),
+  );
 
   useEffect(() => {
     async function loadQuotePreview() {
@@ -241,6 +228,33 @@ export default function CustomerScreen() {
     }
   }
 
+  async function handleSubmitRating() {
+    if (!selectedRequest || !selectedRequest.technicianId) {
+      setError('This request does not have a technician assigned for rating.');
+      return;
+    }
+
+    try {
+      await apiRequest(`/repair-requests/${selectedRequest.id}/ratings`, {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: user?.id,
+          technicianId: selectedRequest.technicianId,
+          score: ratingScore,
+          comment: ratingComment,
+        }),
+      });
+
+      setRatingComment('');
+      setRatedRequestIds((previous) => new Set(previous).add(selectedRequest.id));
+      setRepairs((previous) => previous.filter((request) => request.id !== selectedRequest.id));
+      setError(null);
+      setSelectedRequestId(selectedRequest.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to submit the rating');
+    }
+  }
+
   const customerStats = useMemo(() => {
     const active = repairs.filter((request) => ['pending', 'quoted', 'assigned', 'in-progress', 'approved'].includes(request.status)).length;
     const openPayments = repairs.reduce((total, request) => {
@@ -259,14 +273,6 @@ export default function CustomerScreen() {
     ];
   }, [repairs]);
 
-  const recentActivity = useMemo(() => {
-    return repairs.slice(0, 3).map((request) => {
-      const title = request.deviceType || 'Device repair';
-      const statusText = request.status ? request.status.replace('-', ' ') : 'received';
-      return `${title} request is ${statusText}.`;
-    });
-  }, [repairs]);
-
   if (!user) {
     return <Redirect href="/login" />;
   }
@@ -276,59 +282,30 @@ export default function CustomerScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-[#09111F]">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 36 }}>
-        <View className="bg-[#0F172A] px-5 pb-7 pt-8">
-          <View className="mb-5 flex-row items-center justify-between">
-            <Link href="/" asChild>
-              <Pressable>
-                <Text className="text-base font-semibold text-cyan-300">← Home</Text>
-              </Pressable>
-            </Link>
-            <View className="flex-row items-center gap-2">
-              <Pressable onPress={() => setShowNotifications((current) => !current)} className="relative rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5">
-                <Text className="text-base">🔔</Text>
-                {unreadQuoteCount > 0 ? (
-                  <View className="absolute -right-1 -top-1 min-w-[18px] items-center rounded-full bg-rose-500 px-1">
-                    <Text className="text-[9px] font-bold text-white">{unreadQuoteCount}</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-              <View className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5">
-                <Text className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200">Customer</Text>
-              </View>
-              <Pressable onPress={handleLogout} className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5">
-                <Text className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-200">Logout</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {showNotifications ? (
-            <View className="mb-4 rounded-2xl border border-slate-700 bg-[#111827] p-3">
-              <Text className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">Notifications</Text>
-              {notifications.length === 0 ? (
-                <Text className="text-sm text-slate-300">No updates yet.</Text>
-              ) : (
-                notifications.slice(0, 4).map((item) => (
-                  <View key={item.id} className="mb-2 rounded-xl border border-slate-700 bg-[#0b1220] p-2 last:mb-0">
-                    <Text className="text-sm font-semibold text-white">{item.title}</Text>
-                    <Text className="mt-1 text-xs text-slate-300">{item.body}</Text>
-                  </View>
-                ))
-              )}
-            </View>
-          ) : null}
-
-          <Text className="text-3xl font-black text-white">Hello, {user.fullName?.split(' ')[0] ?? 'Customer'}</Text>
-          <Text className="mt-2 text-base text-slate-300">
-            Track repairs, review updates, and stay on top of service progress.
+    <View className="flex-1 items-center bg-[#040B18]">
+      <View className="flex-1 w-full bg-[#07142F]" style={{ maxWidth: 430 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 28 }}>
+        <View className="px-5 pb-5 pt-4">
+          <Text className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-300">Customer dashboard</Text>
+          <Text className="mt-2 text-3xl font-black text-white">Hi, {user.fullName?.split(' ')[0] ?? 'there'} 👋</Text>
+          <Text className="mt-2 text-sm leading-5 text-slate-300">
+            Your repairs and updates, all in one place.
           </Text>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="View repair history"
+            onPress={() => router.push('/customer/archive')}
+            className="mt-2 min-h-11 flex-row items-center self-start"
+          >
+            <Archive size={16} color="#22D3EE" />
+            <Text className="ml-2 text-sm font-semibold text-cyan-300">View history</Text>
+          </Pressable>
         </View>
 
-        <View className="px-5 pt-6">
+        <View className="px-5 pt-1">
           <View className="mb-4 flex-row flex-wrap justify-between">
             {customerStats.map((item) => (
-              <View key={item.label} className="mb-3 w-[31%] min-w-[100px] rounded-2xl border border-slate-700 bg-[#111827] p-3">
+              <View key={item.label} className="mb-3 w-[31%] min-w-[96px] rounded-2xl border border-[#1C2D4A] bg-[#0D1B38] p-3">
                 <Text className="text-lg font-black" style={{ color: item.tone }}>{item.value}</Text>
                 <Text className="mt-1 text-[10px] text-slate-400">{item.label}</Text>
               </View>
@@ -336,9 +313,9 @@ export default function CustomerScreen() {
           </View>
         </View>
 
-        <View className="mt-2 px-5">
+        <View className="mt-1 px-5">
           {loading ? (
-            <View className="rounded-2xl border border-slate-700 bg-[#111827] p-5">
+            <View className="rounded-2xl border border-slate-700 bg-[#0D1B38] p-5">
               <ActivityIndicator color="#67e8f9" />
               <Text className="mt-3 text-center text-sm text-slate-300">Loading your repairs...</Text>
             </View>
@@ -347,18 +324,22 @@ export default function CustomerScreen() {
               <Text className="text-sm text-rose-300">{error}</Text>
             </View>
           ) : repairs.length === 0 ? (
-            <View className="rounded-2xl border border-slate-700 bg-[#111827] p-5">
+            <View className="rounded-2xl border border-[#1C2D4A] bg-[#0D1B38] p-5">
               <Text className="text-base font-semibold text-white">No repair requests yet</Text>
-              <Text className="mt-2 text-sm text-slate-300">Create a repair request from the service booking flow to see it here.</Text>
+              <Text className="mt-2 text-sm leading-5 text-slate-300">
+                When you need a repair, tap the + button below to tell us what needs fixing.
+              </Text>
             </View>
           ) : (
             <View className="space-y-4">
               {selectedRequest ? (
-                <View className="rounded-2xl border border-cyan-700 bg-[#0f172a] p-4">
+                <View className="rounded-2xl border border-[#1C2D4A] bg-[#0D1B38] p-4">
                   <View className="mb-3 flex-row items-center justify-between">
                     <Text className="text-lg font-bold text-white">Request #{selectedRequest.id}</Text>
                     <Text className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-cyan-200">
-                      {formatRepairStatus(selectedRequest.status)}
+                      {ratedRequestIds.has(selectedRequest.id) && ['completed', 'closed'].includes(String(selectedRequest.status ?? '').toLowerCase())
+                        ? 'Completed & rated'
+                        : formatRepairStatus(selectedRequest.status)}
                     </Text>
                   </View>
 
@@ -370,13 +351,13 @@ export default function CustomerScreen() {
                   </Text>
 
                   <View className="mt-3 flex-row gap-2">
-                    <View className="flex-1 rounded-xl border border-slate-700 bg-[#111827] px-3 py-2">
+                    <View className="flex-1 rounded-xl border border-slate-700 bg-[#101F3D] px-3 py-2">
                       <Text className="text-[9px] uppercase tracking-[0.18em] text-slate-400">Technician</Text>
                       <Text className="mt-1 text-sm text-slate-100">
                         {selectedRequest.technicianId ? `#${selectedRequest.technicianId}` : 'Awaiting'}
                       </Text>
                     </View>
-                    <View className="flex-1 rounded-xl border border-slate-700 bg-[#111827] px-3 py-2">
+                    <View className="flex-1 rounded-xl border border-slate-700 bg-[#101F3D] px-3 py-2">
                       <Text className="text-[9px] uppercase tracking-[0.18em] text-slate-400">Issue</Text>
                       <Text className="mt-1 text-sm text-slate-100" numberOfLines={1}>{selectedRequest.issueDescription}</Text>
                     </View>
@@ -411,7 +392,7 @@ export default function CustomerScreen() {
                     </View>
                   </View>
 
-                  {['completed', 'cancelled', 'rejected'].includes(String(selectedRequest.status ?? '').toLowerCase()) ? null : (
+                  {['completed', 'closed', 'cancelled', 'rejected'].includes(String(selectedRequest.status ?? '').toLowerCase()) ? null : (
                     <Pressable
                       onPress={() => handleStopRequest(selectedRequest.id)}
                       className="mt-3 rounded-xl border border-rose-500 bg-rose-500/10 px-3 py-2.5"
@@ -419,10 +400,46 @@ export default function CustomerScreen() {
                       <Text className="text-center text-[9px] font-bold uppercase tracking-[0.2em] text-rose-200">Stop this request</Text>
                     </Pressable>
                   )}
+
+                  {['completed', 'closed'].includes(String(selectedRequest.status ?? '').toLowerCase()) ? (
+                    ratedRequestIds.has(selectedRequest.id) ? (
+                      <View className="mt-3 rounded-xl border border-emerald-500 bg-emerald-500/10 p-3">
+                        <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300">Completed & rated</Text>
+                        <Text className="mt-1 text-sm text-slate-200">Thanks for your feedback. This repair request is now fully closed.</Text>
+                      </View>
+                    ) : (
+                      <View className="mt-3 rounded-xl border border-amber-500 bg-amber-500/10 p-3">
+                        <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-amber-300">Rate technician</Text>
+                        <View className="mt-2 flex-row gap-2">
+                          {[1, 2, 3, 4, 5].map((score) => (
+                            <Pressable
+                              key={score}
+                              onPress={() => setRatingScore(score)}
+                              className={`rounded-full px-3 py-1.5 ${ratingScore === score ? 'bg-amber-500' : 'border border-slate-600 bg-[#111827]'}`}
+                            >
+                              <Text className={`text-xs font-bold ${ratingScore === score ? 'text-slate-900' : 'text-slate-200'}`}>{score}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                        <TextInput
+                          value={ratingComment}
+                          onChangeText={setRatingComment}
+                          placeholder="Leave a short note about the service"
+                          placeholderTextColor="#64748b"
+                          multiline
+                          numberOfLines={3}
+                          className="mt-2 min-h-[70px] rounded-xl border border-slate-700 bg-[#0b1220] px-3 py-2 text-sm text-white"
+                        />
+                        <Pressable onPress={handleSubmitRating} className="mt-3 rounded-lg bg-amber-500 px-3 py-2">
+                          <Text className="text-center text-[9px] font-bold uppercase tracking-[0.2em] text-slate-900">Submit rating</Text>
+                        </Pressable>
+                      </View>
+                    )
+                  ) : null}
                 </View>
               ) : null}
 
-              <View className="rounded-2xl border border-slate-700 bg-[#111827] p-3">
+              <View className="rounded-2xl border border-slate-700 bg-[#101F3D] p-3">
                 <Text className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-300">Recent requests</Text>
                 <View className="mt-3 gap-2">
                   {repairs.map((repair) => {
@@ -434,7 +451,7 @@ export default function CustomerScreen() {
                       <Pressable
                         key={repair.id}
                         onPress={() => setSelectedRequestId(repair.id)}
-                        className={`rounded-xl border px-3 py-2.5 ${isSelected ? 'border-cyan-500 bg-[#0f172a]' : 'border-slate-700 bg-[#0b1220]'}`}
+                        className={`rounded-xl border px-3 py-2.5 ${isSelected ? 'border-cyan-500 bg-[#0D1B38]' : 'border-slate-700 bg-[#101F3D]'}`}
                       >
                         <View className="flex-row items-center justify-between">
                           <Text className="text-sm font-semibold text-white">#{repair.id} · {itemLabel}</Text>
@@ -452,37 +469,8 @@ export default function CustomerScreen() {
           )}
         </View>
 
-        <View className="mt-5 px-5">
-          <View className="flex-row flex-wrap justify-between gap-2">
-            {quickActions.map((action) => (
-              <Pressable
-                key={action.label}
-                onPress={() => router.push(action.route as any)}
-                className="rounded-xl border border-slate-700 bg-[#111827] px-3 py-3"
-                style={{ width: '48%' }}
-              >
-                <Text className="text-center text-sm font-semibold text-slate-100">{action.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <View className="mt-5 px-5 pb-2">
-          <Text className="mb-3 text-sm font-bold text-white">Activity</Text>
-          <View className="rounded-[20px] border border-slate-700 bg-[#111827] p-3">
-            {recentActivity.length === 0 ? (
-              <Text className="text-sm text-slate-300">No activity yet for this account.</Text>
-            ) : (
-              recentActivity.map((item) => (
-                <View key={item} className="mb-2 flex-row items-start">
-                  <View className="mr-2 mt-1.5 h-2 w-2 rounded-full bg-cyan-400" />
-                  <Text className="flex-1 text-xs leading-5 text-slate-300">{item}</Text>
-                </View>
-              ))
-            )}
-          </View>
-        </View>
       </ScrollView>
-    </SafeAreaView>
+      </View>
+    </View>
   );
 }

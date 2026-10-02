@@ -149,6 +149,18 @@ export async function confirmServiceFee(repairRequestId: number) {
   return request;
 }
 
+export async function addTechnicianRepairNote(repairRequestId: number, technicianId: number, message: string, status?: string) {
+  const [update] = await db.insert(repairUpdates).values({
+    repairRequestId,
+    userId: technicianId,
+    message: message.trim() || 'Technician updated this repair request.',
+    status: status ?? 'diagnosis_update',
+    isCustomerVisible: false,
+  }).returning();
+
+  return update;
+}
+
 export async function createRepairQuote(repairRequestId: number, technicianId: number, input: { laborCost: number; sparePartsCost: number; notes?: string; diagnosis?: string; quantity?: number; currency?: string; totalDue?: number }) {
   const laborCost = Number(input.laborCost ?? 0);
   const sparePartsCost = Number(input.sparePartsCost ?? 0);
@@ -233,6 +245,7 @@ export async function completeRepair(repairRequestId: number, notes: string, pho
     userId: request.technicianId ?? null,
     message: notes,
     status: 'completed',
+    isCustomerVisible: false,
   });
 
   if (photoUrl) {
@@ -241,13 +254,39 @@ export async function completeRepair(repairRequestId: number, notes: string, pho
       userId: request.technicianId ?? null,
       message: 'Repair photo uploaded',
       status: 'completed',
+      isCustomerVisible: false,
     });
   }
 
   await db.insert(notifications).values({
     userId: request.customerId ?? 0,
     title: 'Repair completed',
-    body: 'Your repair has been completed. Please review and pay the remaining balance.',
+    body: 'The technician has completed the repair and the manager will review the closure.',
+    type: 'repair',
+    referenceId: request.id,
+  });
+
+  return request;
+}
+
+export async function closeRepairRequest(repairRequestId: number, managerId: number, reason?: string) {
+  const [request] = await db.update(repairRequests)
+    .set({ status: 'closed', paymentStatus: 'paid', completedAt: new Date(), updatedAt: new Date() })
+    .where(eq(repairRequests.id, repairRequestId))
+    .returning();
+
+  await db.insert(repairUpdates).values({
+    repairRequestId,
+    userId: managerId,
+    message: reason ?? 'Manager approved the completion and closed the service request.',
+    status: 'closed',
+    isCustomerVisible: false,
+  });
+
+  await db.insert(notifications).values({
+    userId: request.customerId ?? 0,
+    title: 'Repair closed',
+    body: 'Your repair request has been closed and marked complete. You can now rate the technician.',
     type: 'repair',
     referenceId: request.id,
   });
@@ -274,13 +313,19 @@ export async function finalizePayment(repairRequestId: number, amount: number, p
 }
 
 export async function submitRating(repairRequestId: number, customerId: number, technicianId: number, score: number, comment?: string) {
-  const [rating] = await db.insert(ratings).values({
-    repairRequestId,
-    customerId,
-    technicianId,
-    score,
-    comment,
-  }).returning();
+  return db.transaction(async (transaction) => {
+    const [rating] = await transaction.insert(ratings).values({
+      repairRequestId,
+      customerId,
+      technicianId,
+      score,
+      comment,
+    }).returning();
 
-  return rating;
+    await transaction.update(repairRequests)
+      .set({ status: 'closed', updatedAt: new Date() })
+      .where(eq(repairRequests.id, repairRequestId));
+
+    return rating;
+  });
 }

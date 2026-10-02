@@ -1,6 +1,5 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
 import {
   AlertTriangle,
   BadgeCheck,
@@ -217,7 +216,8 @@ export default function AdminScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          technicianId: 3,
+          userId: user?.id,
+          technicianId: selectedTechnicianId[requestId] ?? dashboard?.technicians?.[0]?.id ?? 0,
           laborCost: Number(draft.laborCost ?? 0),
           sparePartsCost: Number(draft.partsCost ?? 0),
           quantity: Number(draft.quantity ?? 1),
@@ -274,18 +274,13 @@ export default function AdminScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-[#120F1D]">
+    <View className="flex-1 bg-[#09111F]">
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 36 }}>
-        <View className="bg-[#1E1B2F] px-5 pb-7 pt-8">
+        <View className="bg-[#0B1B4B] px-5 pb-7 pt-8">
           <View className="mb-5 flex-row items-center justify-between">
-            <Link href="/" asChild>
-              <Pressable>
-                <Text className="text-base font-semibold text-violet-300">← Home</Text>
-              </Pressable>
-            </Link>
             <View className="flex-row items-center gap-2">
-              <View className="rounded-full border border-violet-400/30 bg-violet-400/10 px-3 py-1.5">
-                <Text className="text-[10px] font-bold uppercase tracking-[0.22em] text-violet-200">Admin</Text>
+              <View className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5">
+                <Text className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200">Admin</Text>
               </View>
               <Pressable onPress={handleLogout} className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5">
                 <Text className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-200">Logout</Text>
@@ -294,7 +289,7 @@ export default function AdminScreen() {
           </View>
 
           <Text className="text-3xl font-black text-white">Control center</Text>
-          <Text className="mt-2 text-base text-violet-100">
+          <Text className="mt-2 text-base text-blue-100">
             Review service requests, oversee technicians, and manage the full operation from one live dashboard.
           </Text>
         </View>
@@ -302,8 +297,8 @@ export default function AdminScreen() {
         <View className="px-5 pt-6">
           <Text className="mb-4 text-lg font-bold text-white">Platform overview</Text>
           {loading ? (
-            <View className="rounded-[20px] border border-violet-900 bg-[#17121E] p-6">
-              <ActivityIndicator color="#c4b5fd" />
+            <View className="rounded-[20px] border border-slate-700 bg-[#111827] p-6">
+              <ActivityIndicator color="#67e8f9" />
               <Text className="mt-3 text-center text-sm text-slate-300">Loading admin data...</Text>
             </View>
           ) : error ? (
@@ -320,7 +315,7 @@ export default function AdminScreen() {
               ].map((stat) => {
                 const Icon = stat.icon;
                 return (
-                  <View key={stat.label} className="mb-3 w-[47%] rounded-2xl border border-violet-900 bg-[#17121E] p-4">
+                  <View key={stat.label} className="mb-3 w-[47%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
                     <View className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl ${stat.bg}`}>
                       <Icon size={18} color={stat.tint.includes('violet') ? '#c4b5fd' : stat.tint.includes('cyan') ? '#67e8f9' : stat.tint.includes('emerald') ? '#6ee7b7' : '#fcd34d'} />
                     </View>
@@ -346,7 +341,7 @@ export default function AdminScreen() {
                 ].map((item) => {
                   const Icon = item.icon;
                   return (
-                    <View key={item.label} className="mb-3 w-[47%] rounded-2xl border border-violet-900 bg-[#17121E] p-4">
+                    <View key={item.label} className="mb-3 w-[47%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
                       <View className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${item.bg}`}>
                         <Icon size={16} color={item.tint.includes('sky') ? '#7dd3fc' : item.tint.includes('emerald') ? '#6ee7b7' : item.tint.includes('amber') ? '#fcd34d' : '#c4b5fd'} />
                       </View>
@@ -368,12 +363,12 @@ export default function AdminScreen() {
               <Text className="mb-4 text-lg font-bold text-white">Review queue</Text>
               <View className="space-y-3">
                 {dashboard.reviewQueue.length === 0 ? (
-                  <View className="rounded-[20px] border border-violet-900 bg-[#17121E] p-5">
+                  <View className="rounded-[20px] border border-slate-700 bg-[#111827] p-5">
                     <Text className="text-slate-300">No repair requests are currently waiting for review.</Text>
                   </View>
                 ) : (
                   dashboard.reviewQueue.map((request) => (
-                    <View key={request.id} className="rounded-[22px] border border-violet-900 bg-[#17121E] p-4">
+                    <View key={request.id} className="rounded-[22px] border border-slate-700 bg-[#111827] p-4">
                       <View className="mb-3 flex-row items-center justify-between">
                         <View>
                           <Text className="text-base font-bold text-white">#{request.id} · {request.deviceType}</Text>
@@ -384,7 +379,7 @@ export default function AdminScreen() {
                         </View>
                       </View>
 
-                      <View className="mb-3 rounded-xl bg-[#201b2d] p-3">
+                      <View className="mb-3 rounded-xl bg-[#0F172A] p-3">
                         <Text className="text-sm leading-6 text-slate-300">{request.issue}</Text>
                       </View>
 
@@ -404,14 +399,14 @@ export default function AdminScreen() {
                           </Pressable>
                           <Pressable
                             onPress={() => handleReviewRequest(request.id, 'approved')}
-                            className="flex-1 flex-row items-center justify-center gap-1 rounded-xl bg-violet-500 px-2 py-2.5"
+                            className="flex-1 flex-row items-center justify-center gap-1 rounded-xl bg-blue-600 px-2 py-2.5"
                           >
                             <CheckCircle2 size={12} color="#fff" />
                             <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-white">Approve</Text>
                           </Pressable>
                         </View>
 
-                        <View className="rounded-2xl border border-slate-700 bg-[#201b2d] p-3">
+                        <View className="rounded-2xl border border-slate-700 bg-[#0F172A] p-3">
                           <Text className="mb-2 text-[9px] font-bold uppercase tracking-[0.18em] text-amber-200">Select technician</Text>
                           <View className="flex-row flex-wrap gap-2">
                             {(dashboard?.technicians ?? []).map((tech) => {
@@ -589,11 +584,11 @@ export default function AdminScreen() {
 
         <View className="mt-6 px-5">
           <Text className="mb-4 text-lg font-bold text-white">Operational focus</Text>
-          <View className="rounded-[24px] border border-violet-900 bg-[#17121E] p-4">
+              <View className="rounded-[24px] border border-slate-700 bg-[#111827] p-4">
             {adminActions.map((item) => {
               const Icon = item.icon;
               return (
-                <View key={item.label} className="mb-3 flex-row items-center rounded-xl bg-[#201b2d] p-3 last:mb-0">
+                <View key={item.label} className="mb-3 flex-row items-center rounded-xl bg-[#0F172A] p-3 last:mb-0">
                   <View className="mr-3 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/10">
                     <Icon size={16} color="#c4b5fd" />
                   </View>
@@ -604,6 +599,6 @@ export default function AdminScreen() {
           </View>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

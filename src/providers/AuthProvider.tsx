@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL, apiRequest } from '../lib/api';
 
 export type AppRole = 'customer' | 'technician' | 'manager' | 'admin';
@@ -11,6 +11,8 @@ export type AppUser = {
   phone?: string | null;
   role: AppRole;
   status?: string;
+  isVerified?: boolean;
+  createdAt?: string;
 };
 
 type AuthContextValue = {
@@ -23,6 +25,7 @@ type AuthContextValue = {
     password: string;
     phone?: string;
   }) => Promise<void>;
+  refreshUser: (user: AppUser) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -51,10 +54,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     hydrateSession();
   }, []);
 
-  const persistSession = async (payload: AppUser) => {
+  const persistSession = useCallback(async (payload: AppUser) => {
     await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
     setUser(payload);
-  };
+  }, []);
 
   const login = async (email: string, password: string) => {
     const data = await apiRequest<{ user: AppUser }>('/auth/login', {
@@ -90,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       login,
       register,
+      refreshUser: persistSession,
       logout,
     }),
     [user, isLoading],

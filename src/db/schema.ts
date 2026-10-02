@@ -107,6 +107,7 @@ export const repairUpdates = pgTable('repair_updates', {
   userId: integer('user_id').references(() => users.id, { onDelete: 'set null' }),
   message: text('message').notNull(),
   status: text('status'),
+  isCustomerVisible: boolean('is_customer_visible').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

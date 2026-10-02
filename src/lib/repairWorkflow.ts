@@ -6,6 +6,7 @@ export const repairStatusFlow = [
   { label: 'Approval', key: 'customer_approval' },
   { label: 'Repair', key: 'repair_in_progress' },
   { label: 'Done', key: 'completed' },
+  { label: 'Closed', key: 'closed' },
 ] as const;
 
 const repairStatusIndexMap: Record<string, number> = {
@@ -21,8 +22,9 @@ const repairStatusIndexMap: Record<string, number> = {
   repair_in_progress: 5,
   in_progress: 5,
   completed: 6,
-  rejected: 6,
-  cancelled: 6,
+  closed: 7,
+  rejected: 7,
+  cancelled: 7,
 };
 
 export function getRepairStatusIndex(status: string | null | undefined): number {
