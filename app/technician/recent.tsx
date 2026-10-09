@@ -1,7 +1,9 @@
 import { Redirect, useRouter } from 'expo-router';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { useEffect, useMemo, useState } from 'react';
+import { formatScheduleTime } from '../../src/components/SchedulePicker';
+import { useMemo, useState } from 'react';
+import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
@@ -16,6 +18,7 @@ type TechnicianRequest = {
   preferredTime: string | null;
   amount: number;
   createdAt: string | null;
+  completedAt: string | null;
 };
 
 type TechnicianDashboard = {
@@ -43,7 +46,7 @@ export default function TechnicianRecentScreen() {
   async function loadDashboard() {
     if (!user?.id) return;
     try {
-      setLoading(true);
+      if (!dashboard) setLoading(true);
       const response = await fetch(`${API_BASE_URL}/technician/dashboard/${user.id}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? 'Unable to load recent jobs');
@@ -56,11 +59,7 @@ export default function TechnicianRecentScreen() {
     }
   }
 
-  useEffect(() => {
-    if (user?.role === 'technician') {
-      loadDashboard();
-    }
-  }, [user?.role, user?.id]);
+  useLiveRefresh(loadDashboard, user?.role === 'technician');
 
   const recentJobs = useMemo(
     () =>
@@ -138,8 +137,9 @@ export default function TechnicianRecentScreen() {
                     </View>
                     <Text className="text-sm text-slate-300">Customer: {job.customer}</Text>
                     <Text className="mt-1 text-xs text-slate-400">Issue: {job.issue}</Text>
-                    <Text className="mt-2 text-xs text-slate-500">Preferred time: {job.preferredTime ?? 'To be scheduled'}</Text>
-                    <Text className="mt-1 text-xs text-slate-500">Date: {job.createdAt ? new Date(job.createdAt).toLocaleDateString() : 'N/A'}</Text>
+                    <Text className="mt-2 text-xs text-slate-500">Preferred time: {formatScheduleTime(job.preferredTime)}</Text>
+                    <Text className="mt-1 text-xs text-slate-500">Requested: {job.createdAt ? new Date(job.createdAt).toLocaleDateString() : 'N/A'}</Text>
+                    {job.completedAt ? <Text className="mt-1 text-xs text-emerald-300">Completed: {new Date(job.completedAt).toLocaleString()}</Text> : null}
                   </View>
                 );
               })}

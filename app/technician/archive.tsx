@@ -1,7 +1,9 @@
 import { Redirect, useRouter } from 'expo-router';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { useEffect, useMemo, useState } from 'react';
+import { formatScheduleTime } from '../../src/components/SchedulePicker';
+import { useMemo, useState } from 'react';
+import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
@@ -16,6 +18,7 @@ type TechnicianRequest = {
   preferredTime: string | null;
   amount: number;
   createdAt: string | null;
+  completedAt: string | null;
 };
 
 type TechnicianDashboard = {
@@ -25,7 +28,7 @@ type TechnicianDashboard = {
   requests: TechnicianRequest[];
 };
 
-const ARCHIVE_STATUSES = new Set(['completed', 'closed', 'cancelled', 'rejected']);
+const ARCHIVE_STATUSES = new Set(['closed', 'cancelled', 'rejected']);
 
 const statusTone: Record<string, { label: string; bg: string; text: string }> = {
   completed: { label: 'Completed', bg: '#14532d', text: '#bbf7d0' },
@@ -45,7 +48,7 @@ export default function TechnicianArchiveScreen() {
   async function loadDashboard() {
     if (!user?.id) return;
     try {
-      setLoading(true);
+      if (!dashboard) setLoading(true);
       const response = await fetch(`${API_BASE_URL}/technician/dashboard/${user.id}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? 'Unable to load archive');
@@ -58,11 +61,7 @@ export default function TechnicianArchiveScreen() {
     }
   }
 
-  useEffect(() => {
-    if (user?.role === 'technician') {
-      loadDashboard();
-    }
-  }, [user?.role, user?.id]);
+  useLiveRefresh(loadDashboard, user?.role === 'technician');
 
   const archiveJobs = useMemo(
     () =>
@@ -139,8 +138,10 @@ export default function TechnicianArchiveScreen() {
                     </View>
                     <Text className="text-sm text-slate-300">Customer: {job.customer}</Text>
                     <Text className="mt-1 text-xs text-slate-400">Issue: {job.issue}</Text>
+                    <Text className="mt-1 text-xs text-slate-500">Scheduled time: {formatScheduleTime(job.preferredTime)}</Text>
                     <Text className="mt-2 text-xs text-slate-500">Amount: {job.amount ? `RWF ${job.amount}` : 'Pending'}</Text>
-                    <Text className="mt-1 text-xs text-slate-500">Completed: {job.createdAt ? new Date(job.createdAt).toLocaleDateString() : 'N/A'}</Text>
+                    <Text className="mt-1 text-xs text-slate-500">Requested: {job.createdAt ? new Date(job.createdAt).toLocaleDateString() : 'N/A'}</Text>
+                    {job.completedAt ? <Text className="mt-1 text-xs text-emerald-300">Completed: {new Date(job.completedAt).toLocaleString()}</Text> : null}
                   </View>
                 );
               })}

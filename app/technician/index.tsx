@@ -1,7 +1,9 @@
 import { Link, Redirect, useRouter } from 'expo-router';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { useEffect, useMemo, useState } from 'react';
+import { formatScheduleTime, SchedulePicker } from '../../src/components/SchedulePicker';
+import { useMemo, useState } from 'react';
+import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
@@ -20,23 +22,26 @@ type TechnicianDashboard = {
     preferredTime: string | null;
     amount: number;
     createdAt: string | null;
+    completedAt: string | null;
   }>;
 };
 
-const ARCHIVE_STATUSES = new Set(['completed', 'closed', 'cancelled', 'rejected']);
+const ARCHIVE_STATUSES = new Set(['closed', 'cancelled', 'rejected']);
 
 export default function TechnicianScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [dashboard, setDashboard] = useState<TechnicianDashboard | null>(null);
   const [diagnosisByRequest, setDiagnosisByRequest] = useState<Record<number, string>>({});
+  const [scheduleByRequest, setScheduleByRequest] = useState<Record<number, string>>({});
+  const [scheduleDecisionByRequest, setScheduleDecisionByRequest] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function loadDashboard() {
     if (!user?.id) return;
     try {
-      setLoading(true);
+      if (!dashboard) setLoading(true);
       const response = await fetch(`${API_BASE_URL}/technician/dashboard/${user.id}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? 'Unable to load technician dashboard');
@@ -49,11 +54,7 @@ export default function TechnicianScreen() {
     }
   }
 
-  useEffect(() => {
-    if (user?.role === 'technician') {
-      loadDashboard();
-    }
-  }, [user?.role, user?.id]);
+  useLiveRefresh(loadDashboard, user?.role === 'technician');
 
   const technicianStats = useMemo(
     () => [
@@ -75,17 +76,48 @@ export default function TechnicianScreen() {
   );
 
   async function handleSendSchedule(requestId: number) {
+    const scheduleTime = scheduleByRequest[requestId] ?? '';
+    if (!scheduleTime) {
+      setError('Choose a day and arrival window before confirming the schedule.');
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferredTime: 'Tomorrow, 11:00 AM', technicianId: user?.id, note: 'Technician confirmed schedule for the customer.' }),
+        body: JSON.stringify({
+          userId: user?.id,
+          preferredTime: scheduleTime,
+          note: 'The assigned technician confirmed this time with the customer.',
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? 'Unable to send schedule');
+      setScheduleByRequest((previous) => ({ ...previous, [requestId]: '' }));
+      setError(null);
       await loadDashboard();
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Unable to send schedule');
+    }
+  }
+
+  async function handleCustomerTimeDecision(requestId: number, decision: 'accept' | 'reject') {
+    setScheduleDecisionByRequest((previous) => ({ ...previous, [requestId]: true }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/schedule/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user?.id, decision }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error ?? 'Unable to update the customer time request');
+      setError(null);
+      await loadDashboard();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to update the customer time request');
+    } finally {
+      setScheduleDecisionByRequest((previous) => ({ ...previous, [requestId]: false }));
     }
   }
 
@@ -104,7 +136,6 @@ export default function TechnicianScreen() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? 'Unable to send diagnosis update');
-      setDiagnosisByRequest((previous) => ({ ...previous, [requestId]: '' }));
       setError(null);
       await loadDashboard();
     } catch (error) {
@@ -213,9 +244,11 @@ export default function TechnicianScreen() {
               <View className="space-y-3">
                 {activeJobs.map((job) => {
                   const normalizedStatus = String(job.status ?? '').toLowerCase();
-                  const showSchedule = ['technician_assigned', 'scheduled'].includes(normalizedStatus);
+                  const hasCustomerTime = Boolean(job.preferredTime?.trim());
+                  const needsCustomerTimeDecision = normalizedStatus === 'technician_assigned' && hasCustomerTime;
+                  const showSchedulePicker = normalizedStatus === 'technician_assigned' && !hasCustomerTime;
                   const showDiagnosis = ['technician_assigned', 'scheduled', 'customer_approval', 'repair_in_progress'].includes(normalizedStatus);
-                  const showCompletion = ['repair_in_progress', 'completed'].includes(normalizedStatus);
+                  const showCompletion = normalizedStatus === 'repair_in_progress';
 
                   return (
                     <View key={job.id} className="rounded-2xl border border-slate-700 bg-[#111827] p-4">
@@ -227,12 +260,57 @@ export default function TechnicianScreen() {
                       </View>
                       <Text className="text-sm text-slate-300">Customer: {job.customer}</Text>
                       <Text className="mt-1 text-xs text-slate-400">Issue: {job.issue}</Text>
-                      <Text className="mt-1 text-xs text-slate-400">Preferred time: {job.preferredTime ?? 'To be scheduled'}</Text>
+                      {normalizedStatus === 'completed' && job.completedAt ? (
+                        <Text className="mt-1 text-xs text-emerald-300">
+                          Completed: {new Date(job.completedAt).toLocaleString()}
+                        </Text>
+                      ) : null}
+                      <Text className="mt-1 text-xs text-slate-400">
+                        {needsCustomerTimeDecision
+                          ? `Customer preferred time: ${formatScheduleTime(job.preferredTime)}`
+                          : normalizedStatus === 'scheduled'
+                            ? `Confirmed service time: ${formatScheduleTime(job.preferredTime)}`
+                            : 'Customer has not selected a time yet'}
+                      </Text>
                       <Text className="mt-1 text-xs text-slate-500">Amount: {job.amount ? `RWF ${job.amount}` : 'Pending'}</Text>
+
+                      {needsCustomerTimeDecision ? (
+                        <View className="mt-3 rounded-2xl border border-violet-500/40 bg-violet-500/10 p-3">
+                          <Text className="text-xs font-semibold leading-5 text-violet-100">
+                            Can you make this customer-requested time? Accept it to confirm, or decline to return the request to the manager for reassignment.
+                          </Text>
+                          <View className="mt-3 flex-row gap-2">
+                            <Pressable
+                              disabled={scheduleDecisionByRequest[job.id]}
+                              onPress={() => handleCustomerTimeDecision(job.id, 'accept')}
+                              className="flex-1 rounded-xl bg-emerald-500 px-3 py-3"
+                              style={{ opacity: scheduleDecisionByRequest[job.id] ? 0.6 : 1 }}
+                            >
+                              <Text className="text-center text-xs font-bold uppercase tracking-[0.12em] text-emerald-950">Accept time</Text>
+                            </Pressable>
+                            <Pressable
+                              disabled={scheduleDecisionByRequest[job.id]}
+                              onPress={() => handleCustomerTimeDecision(job.id, 'reject')}
+                              className="flex-1 rounded-xl border border-rose-400/60 bg-rose-500/10 px-3 py-3"
+                              style={{ opacity: scheduleDecisionByRequest[job.id] ? 0.6 : 1 }}
+                            >
+                              <Text className="text-center text-xs font-bold uppercase tracking-[0.12em] text-rose-200">Decline time</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      ) : showSchedulePicker ? (
+                        <View className="mt-3">
+                          <SchedulePicker
+                            value={scheduleByRequest[job.id] ?? ''}
+                            onChange={(value) => setScheduleByRequest((previous) => ({ ...previous, [job.id]: value }))}
+                          />
+                        </View>
+                      ) : null}
 
                       {showDiagnosis ? (
                         <>
-                          <Text className="mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200">Diagnosis update</Text>
+                          <Text className="mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200">Note to manager</Text>
+                          <Text className="mt-1 text-xs text-slate-400">This note is private to the manager and can also be used when you finish the repair.</Text>
                           <View className="mt-2 rounded-xl border border-slate-700 bg-[#0b1220] p-2">
                             <TextInput
                               value={diagnosisByRequest[job.id] ?? ''}
@@ -248,9 +326,14 @@ export default function TechnicianScreen() {
                       ) : null}
 
                       <View className="mt-3 flex-row gap-2">
-                        {showSchedule ? (
-                          <Pressable onPress={() => handleSendSchedule(job.id)} className="flex-1 rounded-xl border border-cyan-500 bg-cyan-500/10 px-3 py-2">
-                            <Text className="text-center text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Send schedule</Text>
+                        {showSchedulePicker ? (
+                          <Pressable
+                            disabled={!scheduleByRequest[job.id]}
+                            onPress={() => handleSendSchedule(job.id)}
+                            className="flex-1 rounded-xl border border-cyan-500 bg-cyan-500/10 px-3 py-3"
+                            style={{ opacity: scheduleByRequest[job.id] ? 1 : 0.5 }}
+                          >
+                            <Text className="text-center text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Confirm agreed time</Text>
                           </Pressable>
                         ) : null}
                         {showDiagnosis ? (

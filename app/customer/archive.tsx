@@ -1,9 +1,11 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { apiRequest } from '../../src/lib/api';
 import { formatRepairStatus } from '../../src/lib/repairWorkflow';
 import { useAuth } from '../../src/providers/AuthProvider';
+import { formatScheduleTime } from '../../src/components/SchedulePicker';
+import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
 type RepairRequest = {
   id: number;
@@ -13,6 +15,7 @@ type RepairRequest = {
   model?: string | null;
   issueDescription: string;
   status: string;
+  preferredTime?: string | null;
   quoteAmount?: number | null;
   serviceFee?: number | null;
   createdAt?: string | null;
@@ -27,28 +30,26 @@ export default function CustomerArchiveScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadHistory() {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const rows = await apiRequest<RepairRequest[]>('/repair-requests');
-        setRepairs(rows
-          .filter((request) => request.customerId === user.id && ARCHIVE_STATUSES.has(String(request.status ?? '').toLowerCase()))
-          .sort((first, second) => Number(second.id) - Number(first.id)));
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unable to load your history');
-      } finally {
-        setLoading(false);
-      }
+  async function loadHistory() {
+    if (!user) {
+      setLoading(false);
+      return;
     }
 
-    loadHistory();
-  }, [user?.id]);
+    try {
+      const rows = await apiRequest<RepairRequest[]>(`/repair-requests?userId=${user.id}`);
+      setRepairs(rows
+        .filter((request) => request.customerId === user.id && ARCHIVE_STATUSES.has(String(request.status ?? '').toLowerCase()))
+        .sort((first, second) => Number(second.id) - Number(first.id)));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load your history');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useLiveRefresh(loadHistory, user?.role === 'customer');
 
   const historyCount = useMemo(() => repairs.length, [repairs]);
 
@@ -100,6 +101,7 @@ export default function CustomerArchiveScreen() {
                     <Text className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-[10px] font-bold uppercase text-cyan-200">{formatRepairStatus(repair.status)}</Text>
                   </View>
                   <Text className="mt-2 text-sm text-slate-300">{repair.issueDescription}</Text>
+                  <Text className="mt-1 text-xs text-slate-400">Scheduled time: {formatScheduleTime(repair.preferredTime)}</Text>
                   <Text className="mt-2 text-xs text-slate-400">
                     {repair.createdAt ? new Date(repair.createdAt).toLocaleDateString() : 'Date unavailable'} · RWF {Number(repair.quoteAmount ?? repair.serviceFee ?? 0).toLocaleString()}
                   </Text>

@@ -18,7 +18,18 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   });
 
   const responseText = await response.text();
-  const data = responseText ? JSON.parse(responseText) : null;
+  let data: unknown = null;
+
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      const message = response.ok
+        ? `The server returned an invalid JSON response (HTTP ${response.status}). Check the API URL and server logs.`
+        : `Request failed (HTTP ${response.status}) with a non-JSON response. Check the API URL and server route.`;
+      throw new Error(message);
+    }
+  }
 
   if (!response.ok) {
     const message =

@@ -1,0 +1,1 @@
+ALTER TABLE "repair_updates" ADD COLUMN "is_customer_visible" boolean DEFAULT false NOT NULL;

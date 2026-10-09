@@ -1,7 +1,12 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { useEffect, useMemo, useState } from 'react';
+import { apiRequest } from '../../src/lib/api';
+import { formatScheduleTime } from '../../src/components/SchedulePicker';
+import { formatRepairStatus } from '../../src/lib/repairWorkflow';
+import { QuoteComposerModal, type QuoteForm } from '../../src/components/QuoteComposerModal';
+import { useMemo, useState } from 'react';
+import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
@@ -16,6 +21,7 @@ type ManagerTask = {
   issue: string;
   status: string;
   preferredTime: string | null;
+  diagnosisNote: string | null;
   amount: number;
   createdAt: string | null;
 };
@@ -35,7 +41,7 @@ type ManagerDashboard = {
   requests: ManagerTask[];
 };
 
-const ARCHIVE_STATUSES = new Set(['completed', 'closed', 'cancelled', 'rejected']);
+const ARCHIVE_STATUSES = new Set(['closed', 'cancelled', 'rejected']);
 
 export default function ManagerScreen() {
   const router = useRouter();
@@ -44,15 +50,13 @@ export default function ManagerScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<Record<number, number>>({});
-  const [preferredTime, setPreferredTime] = useState<Record<number, string>>({});
+  const [quoteDialogRequestId, setQuoteDialogRequestId] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   async function loadDashboard() {
     try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/manager/dashboard`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to load manager dashboard');
+      if (!dashboard) setLoading(true);
+      const data = await apiRequest<ManagerDashboard>(`/manager/dashboard?userId=${user?.id}`);
       setDashboard(data);
       setError(null);
     } catch (err) {
@@ -62,21 +66,7 @@ export default function ManagerScreen() {
     }
   }
 
-  useEffect(() => {
-    if (user?.role === 'manager') {
-      loadDashboard();
-    }
-  }, [user?.role]);
-
-  const managerStats = useMemo(
-    () => [
-      { label: 'Open jobs', value: String(dashboard?.openRequests ?? 0), tone: '#F59E0B' },
-      { label: 'Scheduled', value: String(dashboard?.scheduledRequests ?? 0), tone: '#FBBF24' },
-      { label: 'Quote pending', value: String(dashboard?.quoteRequests ?? 0), tone: '#FB7185' },
-      { label: 'Technicians', value: String(dashboard?.technicianCount ?? 0), tone: '#34D399' },
-    ],
-    [dashboard],
-  );
+  useLiveRefresh(loadDashboard, user?.role === 'manager');
 
   const activeRequests = useMemo(
     () => (dashboard?.requests ?? []).filter((task) => !ARCHIVE_STATUSES.has(String(task.status ?? '').toLowerCase())),
@@ -86,6 +76,16 @@ export default function ManagerScreen() {
   const archiveRequests = useMemo(
     () => (dashboard?.requests ?? []).filter((task) => ARCHIVE_STATUSES.has(String(task.status ?? '').toLowerCase())),
     [dashboard?.requests],
+  );
+
+  const managerStats = useMemo(
+    () => [
+      { label: 'Open jobs', value: String(activeRequests.length), tone: '#F59E0B' },
+      { label: 'Scheduled', value: String(dashboard?.scheduledRequests ?? 0), tone: '#FBBF24' },
+      { label: 'Quote pending', value: String(dashboard?.quoteRequests ?? 0), tone: '#FB7185' },
+      { label: 'Technicians', value: String(dashboard?.technicianCount ?? 0), tone: '#34D399' },
+    ],
+    [activeRequests.length, dashboard],
   );
 
   async function handleAssignTechnician(requestId: number) {
@@ -99,7 +99,7 @@ export default function ManagerScreen() {
       const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ technicianId, serviceFee: 120 }),
+        body: JSON.stringify({ userId: user?.id, technicianId, serviceFee: 120 }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? 'Unable to assign technician');
@@ -110,38 +110,17 @@ export default function ManagerScreen() {
     }
   }
 
-  async function handleScheduleRequest(requestId: number) {
-    const technicianId = selectedTechnicianId[requestId] ?? dashboard?.technicians?.[0]?.id;
-    const scheduleTime = preferredTime[requestId] ?? 'Tomorrow, 10:00 AM';
-
+  async function handleReviewRequest(requestId: number) {
     try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/schedule`, {
+      await apiRequest<unknown>(`/repair-requests/${requestId}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferredTime: scheduleTime, technicianId, note: 'Scheduled by manager review.' }),
+        body: JSON.stringify({ userId: user?.id }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to schedule request');
-      setStatusMessage(`Schedule confirmed for request #${requestId}.`);
+      setStatusMessage(`Request #${requestId} reviewed. You can now assign a technician.`);
       await loadDashboard();
     } catch (err) {
-      setStatusMessage(err instanceof Error ? err.message : 'Unable to schedule request');
-    }
-  }
-
-  async function handleEscalateToAdmin(requestId: number) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/escalate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Escalated by manager for admin review and approval.' }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to escalate the request');
-      setStatusMessage(`Request #${requestId} escalated to admin.`);
-      await loadDashboard();
-    } catch (err) {
-      setStatusMessage(err instanceof Error ? err.message : 'Unable to escalate request');
+      setStatusMessage(err instanceof Error ? err.message : 'Unable to review request');
     }
   }
 
@@ -161,36 +140,29 @@ export default function ManagerScreen() {
     }
   }
 
-  async function handleSendQuote(requestId: number) {
-    const technicianId = selectedTechnicianId[requestId] ?? dashboard?.technicians?.[0]?.id;
+  async function handleSendQuote(requestId: number, assignedTechnicianId: number | null, form: QuoteForm) {
+    const technicianId = selectedTechnicianId[requestId] ?? assignedTechnicianId ?? dashboard?.technicians?.[0]?.id;
     if (!technicianId) {
-      setStatusMessage('Select a technician before sending a quotation.');
-      return;
+      throw new Error('No technician is assigned to this request. Assign a technician before creating a quotation.');
     }
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/quotes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user?.id,
-          technicianId,
-          laborCost: 120,
-          sparePartsCost: 80,
-          quantity: 1,
-          diagnosis: 'Manager review completed: minor battery and screen fault confirmed on inspection.',
-          currency: 'RWF',
-          totalDue: 200,
-          notes: 'Manager quote prepared following inspection. Customer approval is required before the repair starts.',
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to send quotation');
-      setStatusMessage(`Quote sent for request #${requestId}.`);
-      await loadDashboard();
-    } catch (err) {
-      setStatusMessage(err instanceof Error ? err.message : 'Unable to send quotation');
-    }
+    const partCost = Number(form.partCost);
+    const laborCost = Number(form.laborCost);
+    await apiRequest(`/repair-requests/${requestId}/quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: user?.id,
+        technicianId,
+        diagnosis: form.diagnosis,
+        partName: form.partName,
+        partCondition: form.partName ? form.partCondition : 'not_required',
+        partCost: form.partName ? partCost : 0,
+        laborCost,
+      }),
+    });
+    setStatusMessage(`Quote sent for request #${requestId}.`);
+    await loadDashboard();
   }
 
   async function handleLogout() {
@@ -223,7 +195,7 @@ export default function ManagerScreen() {
 
           <Text className="text-3xl font-black text-white">Operations hub</Text>
           <Text className="mt-2 text-base text-blue-100">
-            Review the work queue, assign technicians, confirm schedules, and escalate issues for admin resolution.
+            Review each new request, assign a technician, and let the technician confirm a time with the customer.
           </Text>
         </View>
 
@@ -275,8 +247,8 @@ export default function ManagerScreen() {
               ) : (
                 activeRequests.map((task) => {
                   const normalizedStatus = String(task.status ?? '').toLowerCase();
-                  const showAssign = ['submitted', 'under_review', 'technician_assigned'].includes(normalizedStatus);
-                  const showSchedule = ['technician_assigned', 'scheduled'].includes(normalizedStatus);
+                  const showReview = normalizedStatus === 'submitted';
+                  const showAssign = ['under_review', 'technician_assigned', 'schedule_rejected'].includes(normalizedStatus);
                   const showQuote = normalizedStatus === 'scheduled';
                   const showClosure = normalizedStatus === 'completed';
 
@@ -284,13 +256,33 @@ export default function ManagerScreen() {
                     <View key={task.id} className="mb-4 rounded-2xl border border-slate-700 bg-[#111827] p-4">
                       <View className="mb-2 flex-row items-center justify-between">
                         <Text className="text-base font-bold text-white">#{task.id} · {task.device}</Text>
-                        <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-amber-300">{task.status}</Text>
+                        <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-amber-300">{formatRepairStatus(task.status)}</Text>
                       </View>
                       <Text className="text-sm text-slate-300">Customer: {task.customer}</Text>
                       <Text className="mt-1 text-xs text-slate-400">{task.issue}</Text>
                       <Text className="mt-2 text-xs text-slate-500">
-                        {task.preferredTime ? `Preferred time: ${task.preferredTime}` : 'Time to be scheduled'}
+                        {task.preferredTime ? `Preferred time: ${formatScheduleTime(task.preferredTime)}` : 'Time to be scheduled'}
                       </Text>
+                      {task.diagnosisNote ? (
+                        <View className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                          <Text className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200">Private technician diagnosis · manager only</Text>
+                          <Text className="mt-1 text-sm leading-5 text-amber-50">{task.diagnosisNote}</Text>
+                        </View>
+                      ) : null}
+
+                      {normalizedStatus === 'schedule_rejected' ? (
+                        <View className="mt-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2">
+                          <Text className="text-xs leading-5 text-rose-200">
+                            The assigned technician declined this time. Assign another technician to the request.
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {showReview ? (
+                        <Pressable onPress={() => handleReviewRequest(task.id)} className="mt-3 rounded-xl border border-sky-500 bg-sky-500/10 px-3 py-2">
+                          <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-sky-200">Review request</Text>
+                        </Pressable>
+                      ) : null}
 
                       {showAssign ? (
                         <View className="mt-3 rounded-xl border border-slate-700 bg-[#1d1d1d] p-2">
@@ -315,27 +307,18 @@ export default function ManagerScreen() {
                         </View>
                       ) : null}
 
-                      {showSchedule ? (
-                        <View className="mt-3 rounded-xl border border-slate-700 bg-[#1d1d1d] p-2">
-                          <Text className="mb-2 text-[9px] font-bold uppercase tracking-[0.18em] text-amber-200">Schedule</Text>
-                          <View className="flex-row items-center gap-2">
-                            <TextInput
-                              value={preferredTime[task.id] ?? task.preferredTime ?? 'Tomorrow, 10:00 AM'}
-                              onChangeText={(value) => setPreferredTime((previous) => ({ ...previous, [task.id]: value }))}
-                              placeholder="Preferred date and time"
-                              placeholderTextColor="#64748b"
-                              className="flex-1 rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-white"
-                            />
-                            <Pressable onPress={() => handleScheduleRequest(task.id)} className="rounded-xl border border-amber-500 bg-amber-500/10 px-3 py-2">
-                              <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-amber-200">Schedule</Text>
-                            </Pressable>
-                          </View>
+                      {normalizedStatus === 'technician_assigned' ? (
+                        <View className="mt-3 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-2">
+                          <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-cyan-200">Waiting for technician to schedule with customer</Text>
                         </View>
                       ) : null}
 
                       {showQuote ? (
-                        <Pressable onPress={() => handleSendQuote(task.id)} className="mt-3 rounded-xl border border-emerald-500 bg-emerald-500/10 px-3 py-2">
-                          <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-200">Send quote</Text>
+                        <Pressable
+                          onPress={() => setQuoteDialogRequestId(task.id)}
+                          className="mt-3 rounded-xl border border-emerald-500 bg-emerald-500/10 px-3 py-3"
+                        >
+                          <Text className="text-center text-xs font-bold uppercase tracking-[0.16em] text-emerald-200">Create quotation</Text>
                         </Pressable>
                       ) : null}
 
@@ -357,12 +340,6 @@ export default function ManagerScreen() {
                         </Pressable>
                       ) : null}
 
-                      {normalizedStatus !== 'customer_approval' && normalizedStatus !== 'repair_in_progress' ? (
-                        <Pressable onPress={() => handleEscalateToAdmin(task.id)} className="mt-3 rounded-xl border border-rose-500 bg-rose-500/10 px-3 py-2">
-                          <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-rose-200">Escalate</Text>
-                        </Pressable>
-                      ) : null}
-
                       <View className="mt-2 rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2">
                         <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-slate-300">RWF {task.amount}</Text>
                       </View>
@@ -370,6 +347,18 @@ export default function ManagerScreen() {
                   );
                 })
               )}
+              {dashboard.requests.map((task) => (
+                <QuoteComposerModal
+                  key={`quote-modal-${task.id}`}
+                  visible={quoteDialogRequestId === task.id}
+                  requestId={task.id}
+                  device={task.device}
+                  customer={task.customer}
+                  diagnosisNote={task.diagnosisNote}
+                  onClose={() => setQuoteDialogRequestId(null)}
+                  onSubmit={(form) => handleSendQuote(task.id, task.technicianId, form)}
+                />
+              ))}
             </View>
 
             <View className="mt-6 px-5">

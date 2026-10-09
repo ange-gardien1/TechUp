@@ -23,10 +23,11 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const { products, repairRequests, serviceCategories, orders, payments, notifications, repairQuotes, ratings } = require('./src/db/schema');
+const { products, repairRequests, repairUpdates, serviceCategories, orders, payments, notifications, repairQuotes, ratings } = require('./src/db/schema');
 const { and, eq, desc, inArray } = require('drizzle-orm');
 const {
   addTechnicianRepairNote,
+  acceptCustomerSchedule,
   approveRepairQuote,
   assignRepairRequest,
   cancelRepairRequest,
@@ -38,6 +39,7 @@ const {
   escalateRepairRequestToAdmin,
   finalizePayment,
   rejectIncompleteRequest,
+  rejectCustomerSchedule,
   rejectRepairQuote,
   setRepairSchedule,
   submitRating,
@@ -46,6 +48,7 @@ const { getAdminDashboardSummary, getDashboardSummary, getManagerDashboardSummar
 
 const app = express();
 const allowedRoles = ['customer', 'technician', 'manager', 'admin'] as const;
+const TECHUP_SUPPORT_PHONE = '0782245728';
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -142,9 +145,14 @@ app.get('/database/summary', async (_req, res) => {
   }
 });
 
-app.get('/admin/dashboard', async (_req, res) => {
+app.get('/admin/dashboard', async (req, res) => {
   try {
     await initializeDatabase();
+    const adminId = Number(req.query.userId);
+    const [admin] = await db.select().from(users).where(eq(users.id, adminId));
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({ error: 'Only an admin can load the admin dashboard.' });
+    }
     await seedDefaultUsers();
     const summary = await getAdminDashboardSummary();
     res.json(summary);
@@ -154,9 +162,15 @@ app.get('/admin/dashboard', async (_req, res) => {
   }
 });
 
-app.get('/manager/dashboard', async (_req, res) => {
+app.get('/manager/dashboard', async (req, res) => {
   try {
     await initializeDatabase();
+    const managerId = Number(req.query.userId);
+    const [manager] = await db.select().from(users).where(eq(users.id, managerId));
+    if (!manager || manager.role !== 'manager') {
+      return res.status(403).json({ error: 'Only a manager can load the manager dashboard.' });
+    }
+
     await seedDefaultUsers();
     const summary = await getManagerDashboardSummary();
     res.json(summary);
@@ -168,7 +182,13 @@ app.get('/manager/dashboard', async (_req, res) => {
 
 app.get('/technician/dashboard/:id', async (req, res) => {
   try {
+    await initializeDatabase();
     const technicianId = Number(req.params.id);
+    const [technician] = await db.select().from(users).where(eq(users.id, technicianId));
+    if (!technician || technician.role !== 'technician') {
+      return res.status(403).json({ error: 'Only a technician can load an assigned-job dashboard.' });
+    }
+
     const summary = await getTechnicianDashboardSummary(technicianId);
     res.json(summary);
   } catch (error) {
@@ -179,23 +199,7 @@ app.get('/technician/dashboard/:id', async (req, res) => {
 
 app.patch('/admin/repair-requests/:id/status', async (req, res) => {
   try {
-    const id = Number(req.params.id);
-    const nextStatus = String(req.body?.status ?? 'under_review');
-
-    const [row] = await db.update(repairRequests)
-      .set({
-        status: nextStatus,
-        updatedAt: new Date(),
-        paymentStatus: nextStatus === 'approved' ? 'pending' : repairRequests.paymentStatus,
-      })
-      .where(eq(repairRequests.id, id))
-      .returning();
-
-    if (!row) {
-      return res.status(404).json({ error: 'Repair request not found.' });
-    }
-
-    res.json(row);
+    return res.status(403).json({ error: 'Repair requests must be reviewed and assigned by a manager.' });
   } catch (error) {
     console.error('Admin repair request update error', error);
     res.status(500).json({ error: 'Unable to update repair request.' });
@@ -425,8 +429,18 @@ app.delete('/users/:id', async (req, res) => {
   res.json({ deleted: true });
 });
 
-app.get('/repair-requests', async (_req, res) => {
-  const rows = await db.select().from(repairRequests);
+app.get('/repair-requests', async (req, res) => {
+  const userId = Number(req.query.userId);
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+  if (!user) {
+    return res.status(401).json({ error: 'A valid user id is required to view repair requests.' });
+  }
+
+  const rows = user.role === 'manager' || user.role === 'admin'
+    ? await db.select().from(repairRequests)
+    : user.role === 'technician'
+      ? await db.select().from(repairRequests).where(eq(repairRequests.technicianId, user.id))
+      : await db.select().from(repairRequests).where(eq(repairRequests.customerId, user.id));
   res.json(rows);
 });
 
@@ -449,30 +463,150 @@ app.get('/customers/:id/rated-repair-requests', async (req, res) => {
 });
 
 app.post('/repair-requests', async (req, res) => {
-  const payload = {
-    ...req.body,
-    status: req.body?.status ?? 'submitted',
-    paymentStatus: req.body?.paymentStatus ?? 'pending',
-    serviceFee: Number(req.body?.serviceFee ?? 0),
-  };
+  try {
+    const customerId = Number(req.body?.customerId);
+    const [customer] = await db.select().from(users).where(eq(users.id, customerId));
+    if (!customer || customer.role !== 'customer') {
+      return res.status(403).json({ error: 'Only a customer can submit a repair request.' });
+    }
 
-  const row = await createRepairRequest(payload);
-  res.json(row);
+    const row = await createRepairRequest({
+      customerId,
+      deviceType: String(req.body?.deviceType ?? ''),
+      brand: req.body?.brand,
+      model: req.body?.model,
+      issueDescription: String(req.body?.issueDescription ?? ''),
+      serviceAddress: req.body?.serviceAddress,
+      latitude: req.body?.latitude,
+      longitude: req.body?.longitude,
+      preferredTime: req.body?.preferredTime,
+      images: req.body?.images,
+      status: 'submitted',
+      paymentStatus: 'pending',
+      serviceFee: 0,
+    });
+    return res.json(row);
+  } catch (error) {
+    console.error('Create repair request error', error);
+    return res.status(500).json({ error: 'Unable to submit the repair request.' });
+  }
 });
 
 app.get('/repair-requests/:id', async (req, res) => {
-  const row = await db.select().from(repairRequests).where(eq(repairRequests.id, Number(req.params.id)));
-  res.json(row[0] ?? null);
+  const userId = Number(req.query.userId);
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+  if (!user) {
+    return res.status(401).json({ error: 'A valid user id is required to view this repair request.' });
+  }
+
+  const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, Number(req.params.id)));
+  const canView = request && (
+    user.role === 'manager' ||
+    user.role === 'admin' ||
+    (user.role === 'customer' && request.customerId === user.id) ||
+    (user.role === 'technician' && request.technicianId === user.id)
+  );
+  if (!canView) {
+    return res.status(404).json({ error: 'Repair request not found.' });
+  }
+  return res.json(request);
+});
+
+app.get('/repair-requests/:id/quotes', async (req, res) => {
+  const userId = Number(req.query.userId);
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+  if (!user) {
+    return res.status(401).json({ error: 'A valid user id is required to view this quotation.' });
+  }
+
+  const repairRequestId = Number(req.params.id);
+  const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, repairRequestId));
+  const canView = request && (
+    user.role === 'manager' ||
+    user.role === 'admin' ||
+    (user.role === 'customer' && request.customerId === user.id) ||
+    (user.role === 'technician' && request.technicianId === user.id)
+  );
+  if (!canView) {
+    return res.status(404).json({ error: 'Repair request not found.' });
+  }
+
+  const rows = await db.select().from(repairQuotes)
+    .where(eq(repairQuotes.repairRequestId, repairRequestId))
+    .orderBy(desc(repairQuotes.createdAt));
+  return res.json({ quote: rows[0] ?? null });
 });
 
 app.put('/repair-requests/:id', async (req, res) => {
-  const row = await db.update(repairRequests).set(req.body).where(eq(repairRequests.id, Number(req.params.id))).returning();
-  res.json(row[0]);
+  return res.status(405).json({ error: 'Use the role-specific repair request actions.' });
+});
+
+app.post('/repair-requests/:id/review', async (req, res) => {
+  try {
+    const managerId = Number(req.body?.userId);
+    const [manager] = await db.select().from(users).where(eq(users.id, managerId));
+    if (!manager || manager.role !== 'manager') {
+      return res.status(403).json({ error: 'Only a manager can review a repair request.' });
+    }
+
+    const requestId = Number(req.params.id);
+    const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, requestId));
+    if (!request) {
+      return res.status(404).json({ error: 'Repair request not found.' });
+    }
+    if (request.status !== 'submitted') {
+      return res.status(409).json({ error: 'Only newly submitted requests can be moved into review.' });
+    }
+
+    const [reviewed] = await db.update(repairRequests)
+      .set({ status: 'under_review', updatedAt: new Date() })
+      .where(eq(repairRequests.id, requestId))
+      .returning();
+    if (request.customerId) {
+      await db.insert(notifications).values({
+        userId: request.customerId,
+        title: 'Repair request under review',
+        body: 'A manager is reviewing your repair request before assigning a technician.',
+        type: 'repair',
+        referenceId: request.id,
+      });
+    }
+    return res.json(reviewed);
+  } catch (error) {
+    console.error('Review repair request error', error);
+    return res.status(500).json({ error: 'Unable to review the repair request.' });
+  }
 });
 
 app.post('/repair-requests/:id/assign', async (req, res) => {
-  const row = await assignRepairRequest(Number(req.params.id), Number(req.body.technicianId), Number(req.body.serviceFee ?? 2000));
-  res.json(row);
+  try {
+    const managerId = Number(req.body?.userId);
+    const [manager] = await db.select().from(users).where(eq(users.id, managerId));
+    if (!manager || manager.role !== 'manager') {
+      return res.status(403).json({ error: 'Only a manager can assign a technician.' });
+    }
+
+    const technicianId = Number(req.body?.technicianId);
+    const [technician] = await db.select().from(users).where(eq(users.id, technicianId));
+    if (!technician || technician.role !== 'technician') {
+      return res.status(400).json({ error: 'Select a valid technician.' });
+    }
+
+    const requestId = Number(req.params.id);
+    const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, requestId));
+    if (!request) {
+      return res.status(404).json({ error: 'Repair request not found.' });
+    }
+    if (!['under_review', 'technician_assigned', 'schedule_rejected'].includes(request.status)) {
+      return res.status(409).json({ error: 'A manager must review this request before assigning a technician.' });
+    }
+
+    const row = await assignRepairRequest(requestId, technicianId, Number(req.body.serviceFee ?? 0));
+    return res.json(row);
+  } catch (error) {
+    console.error('Assign technician error', error);
+    return res.status(500).json({ error: 'Unable to assign a technician.' });
+  }
 });
 
 app.post('/repair-requests/:id/schedule', async (req, res) => {
@@ -484,20 +618,67 @@ app.post('/repair-requests/:id/schedule', async (req, res) => {
       return res.status(404).json({ error: 'Repair request not found.' });
     }
 
+    const userId = Number(req.body?.userId);
+    const [technician] = await db.select().from(users).where(eq(users.id, userId));
+    if (!technician || technician.role !== 'technician' || request.technicianId !== technician.id) {
+      return res.status(403).json({ error: 'Only the assigned technician can schedule this repair.' });
+    }
+
     const currentStatus = String(request.status ?? 'submitted').toLowerCase();
+    if (!['technician_assigned', 'scheduled'].includes(currentStatus)) {
+      return res.status(409).json({ error: 'The repair must be assigned to you before you can schedule it.' });
+    }
     if (['completed', 'cancelled', 'rejected'].includes(currentStatus)) {
       return res.status(400).json({ error: 'This request cannot be scheduled because it is already closed.' });
     }
 
-    const technicianId = req.body?.technicianId != null ? Number(req.body.technicianId) : request.technicianId ?? null;
-    const preferredTime = String(req.body?.preferredTime ?? request.preferredTime ?? 'To be confirmed');
-    const note = String(req.body?.note ?? 'Schedule confirmed by the team.');
+    const preferredTime = String(req.body?.preferredTime ?? '').trim();
+    if (currentStatus === 'technician_assigned' && request.preferredTime) {
+      return res.status(409).json({ error: 'Please accept or decline the customer preferred time.' });
+    }
+    if (!preferredTime) {
+      return res.status(400).json({ error: 'Enter a date and time agreed with the customer.' });
+    }
+    const note = String(req.body?.note ?? 'The assigned technician confirmed this time with you.');
 
-    const row = await setRepairSchedule(repairRequestId, preferredTime, technicianId, note);
+    const row = await setRepairSchedule(repairRequestId, preferredTime, technician.id, note);
     return res.json(row);
   } catch (error) {
     console.error('Schedule repair request error', error);
     return res.status(500).json({ error: 'Unable to schedule repair request.' });
+  }
+});
+
+app.post('/repair-requests/:id/schedule/decision', async (req, res) => {
+  try {
+    const repairRequestId = Number(req.params.id);
+    const userId = Number(req.body?.userId);
+    const decision = String(req.body?.decision ?? '');
+    const [technician] = await db.select().from(users).where(eq(users.id, userId));
+    if (!technician || technician.role !== 'technician') {
+      return res.status(403).json({ error: 'Only a technician can respond to a customer preferred time.' });
+    }
+
+    const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, repairRequestId));
+    if (!request || request.technicianId !== technician.id) {
+      return res.status(404).json({ error: 'This repair request is not assigned to you.' });
+    }
+    if (request.status !== 'technician_assigned' || !request.preferredTime) {
+      return res.status(409).json({ error: 'There is no pending customer preferred time to respond to.' });
+    }
+
+    if (decision === 'accept') {
+      const row = await acceptCustomerSchedule(repairRequestId, technician.id);
+      return res.json(row);
+    }
+    if (decision === 'reject') {
+      const row = await rejectCustomerSchedule(repairRequestId, technician.id);
+      return res.json(row);
+    }
+    return res.status(400).json({ error: 'Choose whether to accept or decline the customer preferred time.' });
+  } catch (error) {
+    console.error('Respond to customer schedule error', error);
+    return res.status(500).json({ error: 'Unable to respond to the customer preferred time.' });
   }
 });
 
@@ -521,14 +702,9 @@ app.post('/repair-requests/:id/pay-service-fee', async (req, res) => {
   res.json(row);
 });
 
-app.get('/repair-requests/:id/quotes', async (req, res) => {
-  const repairRequestId = Number(req.params.id);
-  const rows = await db.select().from(repairQuotes).where(eq(repairQuotes.repairRequestId, repairRequestId)).orderBy(desc(repairQuotes.createdAt));
-  res.json({ quote: rows[0] ?? null });
-});
-
 app.post('/repair-requests/:id/diagnosis', async (req, res) => {
   try {
+    await initializeDatabase();
     const repairRequestId = Number(req.params.id);
     const userId = Number(req.body?.userId ?? 0);
     const note = String(req.body?.note ?? '').trim();
@@ -541,6 +717,11 @@ app.post('/repair-requests/:id/diagnosis', async (req, res) => {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user || user.role !== 'technician') {
       return res.status(403).json({ error: 'Only a technician can add a diagnosis update.' });
+    }
+
+    const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, repairRequestId));
+    if (!request || request.technicianId !== user.id) {
+      return res.status(403).json({ error: 'Only the assigned technician can update this repair request.' });
     }
 
     if (!note && !diagnosis) {
@@ -556,31 +737,60 @@ app.post('/repair-requests/:id/diagnosis', async (req, res) => {
 });
 
 app.post('/repair-requests/:id/quotes', async (req, res) => {
-  const repairRequestId = Number(req.params.id);
-  const requestRow = await db.select().from(repairRequests).where(eq(repairRequests.id, repairRequestId));
-  const request = requestRow[0];
+  try {
+    await initializeDatabase();
+    const repairRequestId = Number(req.params.id);
+    const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, repairRequestId));
+    if (!request) {
+      return res.status(404).json({ error: 'Repair request not found.' });
+    }
 
-  if (!request) {
-    return res.status(404).json({ error: 'Repair request not found.' });
+    const userId = Number(req.body?.userId ?? 0);
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user || !['admin', 'manager'].includes(String(user.role ?? ''))) {
+      return res.status(403).json({ error: 'Only an admin or manager can send a quotation.' });
+    }
+
+    const currentStatus = String(request.status ?? 'submitted').toLowerCase();
+    if (!['scheduled', 'customer_approval'].includes(currentStatus)) {
+      return res.status(400).json({ error: 'This request must be reviewed, assigned, and scheduled before a quotation can be sent.' });
+    }
+
+    const diagnosis = String(req.body?.diagnosis ?? '').trim();
+    const partName = String(req.body?.partName ?? '').trim();
+    const partCost = Number(req.body?.partCost ?? 0);
+    const laborCost = Number(req.body?.laborCost);
+    const partCondition = String(req.body?.partCondition ?? 'not_required');
+    if (!diagnosis) {
+      return res.status(400).json({ error: 'Enter the repair diagnosis before sending the quotation.' });
+    }
+    if (!Number.isFinite(laborCost) || laborCost < 0 || !Number.isFinite(partCost) || partCost < 0) {
+      return res.status(400).json({ error: 'Part and labor costs must be valid non-negative amounts.' });
+    }
+    if (partName && !['new', 'second_hand'].includes(partCondition)) {
+      return res.status(400).json({ error: 'Choose whether the replacement part is new or second-hand.' });
+    }
+    if (!partName && partCost !== 0) {
+      return res.status(400).json({ error: 'Enter the replacement part name or set the part cost to zero.' });
+    }
+
+    const row = await createRepairQuote(
+      repairRequestId,
+      Number(req.body?.technicianId ?? request.technicianId ?? 0),
+      {
+        diagnosis,
+        partName,
+        partCondition: partCondition as 'new' | 'second_hand' | 'not_required',
+        partCost,
+        laborCost,
+        contactPhone: TECHUP_SUPPORT_PHONE,
+      },
+    );
+    return res.json(row);
+  } catch (error) {
+    console.error('Create repair quotation error', error);
+    return res.status(500).json({ error: 'Unable to create the repair quotation.' });
   }
-
-  const userId = Number(req.body?.userId ?? 0);
-  if (!userId) {
-    return res.status(400).json({ error: 'A user id is required to send a quotation.' });
-  }
-
-  const [user] = await db.select().from(users).where(eq(users.id, userId));
-  if (!user || !['admin', 'manager'].includes(String(user.role ?? ''))) {
-    return res.status(403).json({ error: 'Only an admin or manager can send a quotation.' });
-  }
-
-  const currentStatus = String(request.status ?? 'submitted').toLowerCase();
-  if (!['scheduled', 'customer_approval'].includes(currentStatus)) {
-    return res.status(400).json({ error: 'This request must be reviewed, assigned, and scheduled before a quotation can be sent.' });
-  }
-
-  const row = await createRepairQuote(repairRequestId, Number(req.body.technicianId ?? request.technicianId ?? 0), req.body);
-  res.json(row);
 });
 
 app.get('/notifications/:userId', async (req, res) => {
@@ -623,7 +833,7 @@ app.post('/repair-requests/:id/reject-quote', async (req, res) => {
 app.post('/repair-requests/:id/complete', async (req, res) => {
   try {
     const userId = Number(req.body?.userId ?? 0);
-    const notes = String(req.body?.notes ?? '').trim();
+    let notes = String(req.body?.notes ?? '').trim();
 
     if (!userId) {
       return res.status(400).json({ error: 'A technician user id is required.' });
@@ -632,6 +842,23 @@ app.post('/repair-requests/:id/complete', async (req, res) => {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user || user.role !== 'technician') {
       return res.status(403).json({ error: 'Only a technician can complete a repair request.' });
+    }
+
+    const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, Number(req.params.id)));
+    if (!request || request.technicianId !== user.id) {
+      return res.status(403).json({ error: 'Only the assigned technician can complete this repair request.' });
+    }
+
+    if (!notes) {
+      const [diagnosisUpdate] = await db.select({ message: repairUpdates.message })
+        .from(repairUpdates)
+        .where(and(
+          eq(repairUpdates.repairRequestId, Number(req.params.id)),
+          eq(repairUpdates.status, 'diagnosis_update'),
+        ))
+        .orderBy(desc(repairUpdates.createdAt))
+        .limit(1);
+      notes = diagnosisUpdate?.message.trim() ?? '';
     }
 
     if (!notes) {

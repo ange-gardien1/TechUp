@@ -13,6 +13,7 @@ import {
 import { ArrowLeft, CheckCircle2, Laptop, Smartphone, Wrench } from 'lucide-react-native';
 import { apiRequest } from '../../src/lib/api';
 import { useAuth } from '../../src/providers/AuthProvider';
+import { SchedulePicker } from '../../src/components/SchedulePicker';
 
 type SubmittedRequest = {
   id: number;
@@ -216,14 +217,13 @@ export default function CustomerNewRequestScreen() {
                     className="min-h-12 rounded-xl border border-[#263955] bg-[#101F3D] px-4 py-3 text-white"
                     returnKeyType="next"
                   />
-                  <TextInput
-                    value={preferredTime}
-                    onChangeText={setPreferredTime}
-                    placeholder="Preferred date or time (optional)"
-                    placeholderTextColor="#94A3B8"
-                    className="mt-3 min-h-12 rounded-xl border border-[#263955] bg-[#101F3D] px-4 py-3 text-white"
-                    returnKeyType="next"
-                  />
+                  <View className="mt-4">
+                    <Text className="mb-2 text-sm font-semibold text-white">Preferred service time (optional)</Text>
+                    <SchedulePicker value={preferredTime} onChange={setPreferredTime} optional />
+                    <Text className="mt-2 text-xs leading-5 text-slate-400">
+                      A technician will confirm this time or decline it so the manager can assign another technician.
+                    </Text>
+                  </View>
                   <TextInput
                     value={photoNote}
                     onChangeText={setPhotoNote}

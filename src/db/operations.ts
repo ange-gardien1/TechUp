@@ -125,6 +125,15 @@ export async function initializeDatabase() {
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
   `);
+  await db.execute(sql`
+    ALTER TABLE repair_quotes
+      ADD COLUMN IF NOT EXISTS diagnosis TEXT,
+      ADD COLUMN IF NOT EXISTS part_name TEXT,
+      ADD COLUMN IF NOT EXISTS part_condition TEXT,
+      ADD COLUMN IF NOT EXISTS part_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS labor_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS contact_phone TEXT;
+  `);
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS repair_photos (
@@ -147,6 +156,10 @@ export async function initializeDatabase() {
       is_customer_visible BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
+  `);
+  await db.execute(sql`
+    ALTER TABLE repair_updates
+    ADD COLUMN IF NOT EXISTS is_customer_visible BOOLEAN NOT NULL DEFAULT FALSE;
   `);
 
   await db.execute(sql`
@@ -541,7 +554,7 @@ export async function getAdminDashboardSummary() {
 }
 
 export async function getManagerDashboardSummary() {
-  const [requests, technicians] = await Promise.all([
+  const [requests, technicians, diagnosisUpdates] = await Promise.all([
     db.select({
       id: repairRequests.id,
       customerId: repairRequests.customerId,
@@ -551,7 +564,7 @@ export async function getManagerDashboardSummary() {
       issueDescription: repairRequests.issueDescription,
       status: repairRequests.status,
       preferredTime: repairRequests.preferredTime,
-      serviceFee: repairRequests.serviceFee,
+      quoteAmount: repairRequests.quoteAmount,
       createdAt: repairRequests.createdAt,
     })
       .from(repairRequests)
@@ -564,11 +577,26 @@ export async function getManagerDashboardSummary() {
     })
       .from(users)
       .where(eq(users.role, 'technician')),
+    db.select({
+      repairRequestId: repairUpdates.repairRequestId,
+      message: repairUpdates.message,
+    })
+      .from(repairUpdates)
+      .where(eq(repairUpdates.status, 'diagnosis_update'))
+      .orderBy(desc(repairUpdates.createdAt)),
   ]);
+  const diagnosisByRequest = new Map<number, string>();
+  for (const update of diagnosisUpdates) {
+    if (!diagnosisByRequest.has(update.repairRequestId)) {
+      diagnosisByRequest.set(update.repairRequestId, update.message);
+    }
+  }
 
   return {
     technicianCount: technicians.length,
-    openRequests: requests.filter((request) => !['completed', 'cancelled', 'rejected'].includes(request.status ?? '')).length,
+    openRequests: requests.filter(
+      (request) => !['completed', 'closed', 'cancelled', 'rejected'].includes(String(request.status ?? '').toLowerCase()),
+    ).length,
     scheduledRequests: requests.filter((request) => request.status === 'scheduled').length,
     quoteRequests: requests.filter((request) => request.status === 'customer_approval').length,
     technicians,
@@ -581,7 +609,10 @@ export async function getManagerDashboardSummary() {
       issue: request.issueDescription,
       status: request.status ?? 'submitted',
       preferredTime: request.preferredTime,
-      amount: Number(request.serviceFee ?? 0),
+      diagnosisNote: diagnosisByRequest.get(request.id) ?? null,
+      amount: ['repair_in_progress', 'completed', 'closed'].includes(String(request.status ?? '').toLowerCase())
+        ? Number(request.quoteAmount ?? 0)
+        : 0,
       createdAt: request.createdAt,
     })),
   };
@@ -599,6 +630,7 @@ export async function getTechnicianDashboardSummary(technicianId: number) {
     serviceFee: repairRequests.serviceFee,
     quoteAmount: repairRequests.quoteAmount,
     createdAt: repairRequests.createdAt,
+    completedAt: repairRequests.completedAt,
   })
     .from(repairRequests)
     .leftJoin(users, eq(repairRequests.customerId, users.id))
@@ -607,7 +639,7 @@ export async function getTechnicianDashboardSummary(technicianId: number) {
 
   return {
     assignedCount: requests.length,
-    activeJobs: requests.filter((request) => !['completed', 'cancelled', 'rejected'].includes(request.status ?? '')).length,
+    activeJobs: requests.filter((request) => !['closed', 'cancelled', 'rejected'].includes(request.status ?? '')).length,
     quotePending: requests.filter((request) => request.status === 'customer_approval').length,
     requests: requests.map((request) => ({
       id: request.id,
@@ -618,6 +650,7 @@ export async function getTechnicianDashboardSummary(technicianId: number) {
       preferredTime: request.preferredTime,
       amount: Number(request.quoteAmount ?? request.serviceFee ?? 0),
       createdAt: request.createdAt,
+      completedAt: request.completedAt,
     })),
   };
 }

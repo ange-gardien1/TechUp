@@ -1,7 +1,8 @@
 import { Link, Redirect, useRouter } from 'expo-router';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
@@ -48,8 +49,8 @@ export default function ManagerArchiveScreen() {
 
   async function loadDashboard() {
     try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/manager/dashboard`);
+      if (!dashboard) setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/manager/dashboard?userId=${user?.id}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? 'Unable to load archive');
       setDashboard(data);
@@ -61,11 +62,7 @@ export default function ManagerArchiveScreen() {
     }
   }
 
-  useEffect(() => {
-    if (user?.role === 'manager') {
-      loadDashboard();
-    }
-  }, [user?.role]);
+  useLiveRefresh(loadDashboard, user?.role === 'manager');
 
   const archiveRequests = useMemo(
     () =>

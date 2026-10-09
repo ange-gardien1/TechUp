@@ -8,6 +8,20 @@
       "when": 1782907557524,
       "tag": "0000_initial_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791585540352,
+      "tag": "0001_flippant_talon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791586358645,
+      "tag": "0002_nifty_hex",
+      "breakpoints": true
     }
   ]
 }

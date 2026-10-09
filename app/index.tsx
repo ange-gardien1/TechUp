@@ -104,7 +104,7 @@ export default function HomeScreen() {
       setRequestLoading(true);
       setRequestError(null);
       try {
-        const requests = await apiRequest<HomeRepairRequest[]>("/repair-requests");
+        const requests = await apiRequest<HomeRepairRequest[]>(`/repair-requests?userId=${user.id}`);
         const latestActiveRequest = requests
           .filter((request) =>
             request.customerId === user.id &&

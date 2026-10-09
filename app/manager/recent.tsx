@@ -1,7 +1,9 @@
 import { Redirect, useRouter } from 'expo-router';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { useEffect, useMemo, useState } from 'react';
+import { formatScheduleTime } from '../../src/components/SchedulePicker';
+import { useMemo, useState } from 'react';
+import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
@@ -26,6 +28,7 @@ const statusTone: Record<string, { label: string; bg: string; text: string }> = 
   submitted: { label: 'Submitted', bg: '#f59e0b', text: '#fff7ed' },
   under_review: { label: 'Under review', bg: '#3b82f6', text: '#dbeafe' },
   technician_assigned: { label: 'Assigned', bg: '#10b981', text: '#ecfdf5' },
+  schedule_rejected: { label: 'Reassign technician', bg: '#e11d48', text: '#fff1f2' },
   scheduled: { label: 'Scheduled', bg: '#6366f1', text: '#eef2ff' },
   customer_approval: { label: 'Customer approval', bg: '#8b5cf6', text: '#f5f3ff' },
   repair_in_progress: { label: 'In progress', bg: '#14b8a6', text: '#ecfeff' },
@@ -42,8 +45,8 @@ export default function ManagerRecentScreen() {
 
   async function loadDashboard() {
     try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/manager/dashboard`);
+      if (!dashboard) setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/manager/dashboard?userId=${user?.id}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? 'Unable to load recent services');
       setDashboard(data);
@@ -55,11 +58,7 @@ export default function ManagerRecentScreen() {
     }
   }
 
-  useEffect(() => {
-    if (user?.role === 'manager') {
-      loadDashboard();
-    }
-  }, [user?.role]);
+  useLiveRefresh(loadDashboard, user?.role === 'manager');
 
   const recentRequests = useMemo(
     () =>
@@ -137,7 +136,7 @@ export default function ManagerRecentScreen() {
                     </View>
                     <Text className="text-sm text-slate-300">Customer: {request.customer}</Text>
                     <Text className="mt-1 text-xs text-slate-400">Issue: {request.issue}</Text>
-                    <Text className="mt-2 text-xs text-slate-500">Preferred time: {request.preferredTime ?? 'To be scheduled'}</Text>
+                    <Text className="mt-2 text-xs text-slate-500">Preferred time: {formatScheduleTime(request.preferredTime)}</Text>
                     <Text className="mt-1 text-xs text-slate-500">Date: {request.createdAt ? new Date(request.createdAt).toLocaleDateString() : 'N/A'}</Text>
                   </View>
                 );

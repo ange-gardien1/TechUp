@@ -1,10 +1,14 @@
 import { Link, Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive } from 'lucide-react-native';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
+import { AppState } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
 import { apiRequest } from '../../src/lib/api';
 import { formatRepairStatus, getRepairStatusIndex, repairStatusFlow } from '../../src/lib/repairWorkflow';
 import { useAuth } from '../../src/providers/AuthProvider';
+import { formatScheduleTime } from '../../src/components/SchedulePicker';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 type RepairRequest = {
   id: number;
@@ -27,10 +31,26 @@ type QuotePreview = {
   repairRequestId: number;
   technicianId: number | null;
   amount: number;
+  diagnosis?: string | null;
+  partName?: string | null;
+  partCondition?: string | null;
+  partCost?: number | null;
+  laborCost?: number | null;
+  contactPhone?: string | null;
   notes: string | null;
   status: string;
   createdAt: string;
 };
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character] ?? character);
+}
 
 export default function CustomerScreen() {
   const router = useRouter();
@@ -42,6 +62,8 @@ export default function CustomerScreen() {
   const [ratingScore, setRatingScore] = useState<number>(5);
   const [ratingComment, setRatingComment] = useState<string>('');
   const [ratedRequestIds, setRatedRequestIds] = useState<Set<number>>(new Set());
+  const [downloadingQuote, setDownloadingQuote] = useState(false);
+  const [quoteModalVisible, setQuoteModalVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,19 +73,24 @@ export default function CustomerScreen() {
   );
 
   const quoteDetails = useMemo(() => {
-    if (!quotePreview?.notes) {
-      return null;
-    }
-
-    const noteParts = quotePreview.notes.split('|').map((part) => part.trim()).filter(Boolean);
-    const diagnosis = noteParts.find((part) => part.toLowerCase().startsWith('diagnosis:'))?.replace(/^diagnosis:\s*/i, '') ?? 'Diagnosis not provided';
-    const quantity = noteParts.find((part) => part.toLowerCase().startsWith('quantity:'))?.replace(/^quantity:\s*/i, '') ?? '1';
-    const total = noteParts.find((part) => part.toLowerCase().startsWith('total due:'))?.replace(/^total due:\s*/i, '') ?? `${quotePreview.amount.toLocaleString()} RWF`;
+    if (!quotePreview) return null;
+    const noteParts = (quotePreview.notes ?? '').split('|').map((part) => part.trim()).filter(Boolean);
+    const legacyValue = (label: string) =>
+      noteParts.find((part) => part.toLowerCase().startsWith(`${label.toLowerCase()}:`))
+        ?.replace(new RegExp(`^${label}:\\s*`, 'i'), '') ?? '';
+    const diagnosis = quotePreview.diagnosis || legacyValue('Diagnosis') || 'Diagnosis not provided';
+    const partCost = Number(quotePreview.partCost ?? 0);
+    const laborCost = Number(quotePreview.laborCost ?? 0);
 
     return {
       diagnosis,
-      quantity,
-      total,
+      partName: quotePreview.partName ?? '',
+      partCondition: quotePreview.partCondition ?? '',
+      partCost,
+      laborCost,
+      hasBreakdown: quotePreview.partCost != null && quotePreview.laborCost != null,
+      total: Number(quotePreview.amount).toLocaleString(),
+      contactPhone: quotePreview.contactPhone ?? '0782245728',
     };
   }, [quotePreview]);
 
@@ -80,7 +107,9 @@ export default function CustomerScreen() {
       const active = index === activeIndex;
 
       const detail =
-        step.key === 'submitted'
+        normalized === 'schedule_rejected' && step.key === 'under_review'
+          ? 'The manager is assigning another technician for your preferred time'
+          : step.key === 'submitted'
           ? 'Request received and under review'
           : step.key === 'under_review'
             ? 'The company is checking the request'
@@ -106,17 +135,21 @@ export default function CustomerScreen() {
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
+      let isLoadingRepairs = false;
+      let hasLoadedRepairs = false;
 
     async function loadCustomerRepairs() {
+      if (isLoadingRepairs) return;
       if (!customerId) {
         setLoading(false);
         return;
       }
 
+      isLoadingRepairs = true;
       try {
-        setLoading(true);
+        if (!hasLoadedRepairs) setLoading(true);
         const [rows, ratedRequestIds] = await Promise.all([
-          apiRequest<RepairRequest[]>('/repair-requests'),
+          apiRequest<RepairRequest[]>(`/repair-requests?userId=${customerId}`),
           apiRequest<number[]>(`/customers/${customerId}/rated-repair-requests`).catch(() => []),
         ]);
         if (!isActive) {
@@ -141,6 +174,8 @@ export default function CustomerScreen() {
           setError(err instanceof Error ? err.message : 'Unable to load your repairs');
         }
       } finally {
+        isLoadingRepairs = false;
+        hasLoadedRepairs = true;
         if (isActive) {
           setLoading(false);
         }
@@ -148,8 +183,12 @@ export default function CustomerScreen() {
     }
 
     loadCustomerRepairs();
+      const refreshInterval = setInterval(() => {
+        if (AppState.currentState === 'active') void loadCustomerRepairs();
+      }, 5000);
       return () => {
         isActive = false;
+        clearInterval(refreshInterval);
       };
     }, [customerId]),
   );
@@ -162,7 +201,9 @@ export default function CustomerScreen() {
       }
 
       try {
-        const data = await apiRequest<{ quote: QuotePreview | null }>(`/repair-requests/${selectedRequest.id}/quotes`);
+        const data = await apiRequest<{ quote: QuotePreview | null }>(
+          `/repair-requests/${selectedRequest.id}/quotes?userId=${user?.id}`,
+        );
         setQuotePreview(data.quote ?? null);
       } catch (error) {
         console.error('Unable to load quote preview', error);
@@ -170,7 +211,7 @@ export default function CustomerScreen() {
     }
 
     loadQuotePreview();
-  }, [selectedRequest?.id, selectedRequest?.status]);
+  }, [selectedRequest?.id, selectedRequest?.status, user?.id]);
 
   async function handleStopRequest(requestId: number) {
     Alert.alert('Stop this request?', 'This will cancel the current repair request and notify the company.', [
@@ -222,9 +263,86 @@ export default function CustomerScreen() {
             : request,
         ),
       );
+      setQuoteModalVisible(false);
+      setQuotePreview(null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to process quote decision');
+    }
+  }
+
+  async function handleDownloadQuotation() {
+    if (!selectedRequest || !quotePreview || !quoteDetails) return;
+
+    const customerName = user?.fullName ?? 'Customer';
+    const partLabel = quoteDetails.partName
+      ? `${quoteDetails.partCondition === 'second_hand' ? 'Second-hand' : 'New'} ${quoteDetails.partName}`
+      : 'No replacement part';
+    const costRows = quoteDetails.hasBreakdown
+      ? `<tr><td>${escapeHtml(partLabel)}</td><td>${quoteDetails.partCost.toLocaleString()}</td></tr>
+         <tr><td>Labor</td><td>${quoteDetails.laborCost.toLocaleString()}</td></tr>`
+      : `<tr><td>Repair service</td><td>${quoteDetails.total}</td></tr>`;
+    const html = `<!doctype html>
+      <html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        @page { size: A4; margin: 16mm; }
+        * { box-sizing: border-box; }
+        body { color: #17243a; font: 12px Arial, Helvetica, sans-serif; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .sheet { max-width: 760px; margin: 0 auto; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #1677ff; padding: 0 0 18px; }
+        .brand { color: #0b1b4b; font-size: 24px; font-weight: 800; letter-spacing: 2px; }
+        .title { color: #0b1b4b; font-size: 20px; font-weight: 700; text-align: right; }
+        .muted { color: #64748b; }
+        .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; padding: 20px 0; }
+        .meta div { padding: 4px 0; }
+        .label { display: block; margin-bottom: 2px; color: #64748b; font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+        .diagnosis { border-left: 3px solid #1677ff; background: #f1f6ff; padding: 12px 14px; margin: 8px 0 20px; white-space: pre-wrap; }
+        table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+        th { background: #0b1b4b; color: white; font-size: 10px; text-transform: uppercase; letter-spacing: .6px; }
+        th, td { border-bottom: 1px solid #dce3ed; padding: 11px 10px; text-align: left; }
+        th:last-child, td:last-child { text-align: right; white-space: nowrap; }
+        tr { break-inside: avoid; }
+        .total td { border-top: 2px solid #0b1b4b; border-bottom: 0; color: #0b1b4b; font-size: 16px; font-weight: 800; }
+        footer { border-top: 1px solid #dce3ed; margin-top: 32px; padding-top: 14px; }
+        .contact { color: #0b1b4b; font-size: 14px; font-weight: 700; }
+      </style></head><body>
+      <main class="sheet">
+      <header><div class="brand">TECHUP</div><div><div class="title">REPAIR QUOTATION</div><div class="muted">Quote #${selectedRequest.id}</div></div></header>
+      <section class="meta">
+        <div><span class="label">Prepared</span>${escapeHtml(new Date(quotePreview.createdAt).toLocaleDateString())}</div>
+        <div><span class="label">Customer</span>${escapeHtml(customerName)}</div>
+        <div><span class="label">Device</span>${escapeHtml([selectedRequest.deviceType, selectedRequest.brand, selectedRequest.model].filter(Boolean).join(' '))}</div>
+        <div><span class="label">Issue reported</span>${escapeHtml(selectedRequest.issueDescription)}</div>
+      </section>
+      <section class="diagnosis"><span class="label">Diagnosis & recommended repair</span>${escapeHtml(quoteDetails.diagnosis)}</section>
+      <table><thead><tr><th>Description</th><th>Amount (RWF)</th></tr></thead><tbody>
+        ${costRows}
+        <tr class="total"><td>Total due</td><td>${quoteDetails.total}</td></tr>
+      </tbody></table>
+      <footer><span class="label">Questions about this quotation?</span>
+        <span class="contact">TechUp Support · ${escapeHtml(quoteDetails.contactPhone)}</span>
+        <p class="muted">Please approve or reject this quotation in your TeckUP customer account. Repair work begins after your approval.</p>
+      </footer></main></body></html>`;
+
+    setDownloadingQuote(true);
+    try {
+      if (Platform.OS === 'web') {
+        await Print.printAsync({ html });
+      } else {
+        const { uri } = await Print.printToFileAsync({ html });
+        if (!(await Sharing.isAvailableAsync())) {
+          throw new Error('Quotation PDF created, but sharing is unavailable on this device.');
+        }
+        await Sharing.shareAsync(uri, {
+          UTI: '.pdf',
+          mimeType: 'application/pdf',
+          dialogTitle: `Quotation ${selectedRequest.id}`,
+        });
+      }
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'Unable to create the quotation PDF.');
+    } finally {
+      setDownloadingQuote(false);
     }
   }
 
@@ -268,7 +386,7 @@ export default function CustomerScreen() {
 
     return [
       { label: 'Active repairs', value: String(active), tone: '#06B6D4' },
-      { label: 'Open payments', value: `$${openPayments || 0}`, tone: '#10B981' },
+      { label: 'Open payments RWF', value: `${openPayments || 0}`, tone: '#10B981' },
       { label: 'Saved devices', value: String(savedDevices), tone: '#F59E0B' },
     ];
   }, [repairs]);
@@ -347,7 +465,8 @@ export default function CustomerScreen() {
                     {selectedRequest.deviceType} · {selectedRequest.brand ?? 'Device'} {selectedRequest.model ?? ''}
                   </Text>
                   <Text className="mt-2 text-xs text-slate-400">
-                    {selectedRequest.preferredTime ?? 'Scheduling pending'} • ${Number(selectedRequest.quoteAmount ?? selectedRequest.serviceFee ?? 0)}
+                    {String(selectedRequest.status ?? '').toLowerCase() === 'scheduled' ? 'Scheduled' : 'Preferred time'}: {formatScheduleTime(selectedRequest.preferredTime)}
+                    {' • '}${Number(selectedRequest.quoteAmount ?? selectedRequest.serviceFee ?? 0)}
                   </Text>
 
                   <View className="mt-3 flex-row gap-2">
@@ -364,21 +483,95 @@ export default function CustomerScreen() {
                   </View>
 
                   {Number(selectedRequest.quoteAmount ?? 0) > 0 && String(selectedRequest.status ?? '').toLowerCase() === 'customer_approval' ? (
-                    <View className="mt-3 rounded-xl border border-amber-500 bg-amber-500/10 p-3">
-                      <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-amber-300">Quote approval</Text>
-                      <Text className="mt-2 text-base font-semibold text-white">{quoteDetails?.total ?? `${Number(selectedRequest.quoteAmount ?? 0).toLocaleString()} RWF`}</Text>
-                      <Text className="mt-1 text-xs text-slate-300">Diagnosis: {quoteDetails?.diagnosis ?? 'No diagnosis details available yet.'}</Text>
-                      <Text className="mt-1 text-xs text-slate-300">Quantity: {quoteDetails?.quantity ?? '1'}</Text>
-                      <View className="mt-2 flex-row gap-2">
-                        <Pressable onPress={() => handleQuoteDecision('approve')} className="flex-1 rounded-lg bg-emerald-500 px-2 py-2">
-                          <Text className="text-center text-[9px] font-bold uppercase tracking-[0.2em] text-white">Approve</Text>
-                        </Pressable>
-                        <Pressable onPress={() => handleQuoteDecision('reject')} className="flex-1 rounded-lg border border-rose-500 bg-rose-500/10 px-2 py-2">
-                          <Text className="text-center text-[9px] font-bold uppercase tracking-[0.2em] text-rose-200">Reject</Text>
-                        </Pressable>
+                    <Pressable
+                      onPress={() => setQuoteModalVisible(true)}
+                      className="mt-3 rounded-xl border border-amber-500 bg-amber-500/10 p-3"
+                    >
+                      <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-amber-300">Quotation awaiting your decision</Text>
+                      <Text className="mt-1 text-base font-semibold text-white">RWF {Number(selectedRequest.quoteAmount).toLocaleString()}</Text>
+                      <Text className="mt-2 text-center text-xs font-bold uppercase tracking-[0.12em] text-cyan-200">View full quotation</Text>
+                    </Pressable>
+                  ) : null}
+
+                  <Modal
+                    visible={quoteModalVisible && String(selectedRequest.status ?? '').toLowerCase() === 'customer_approval'}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setQuoteModalVisible(false)}
+                    statusBarTranslucent
+                  >
+                    <View className="flex-1 items-center justify-center bg-black/70 px-4 py-6">
+                      <View className="w-full overflow-hidden rounded-[28px] border border-slate-700 bg-[#091525]" style={{ maxWidth: 560, maxHeight: '94%' }}>
+                        <View className="flex-row items-center justify-between border-b border-slate-700 px-5 py-4">
+                          <View>
+                            <Text className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-300">Quotation #{selectedRequest.id}</Text>
+                            <Text className="mt-1 text-lg font-black text-white">Review repair estimate</Text>
+                          </View>
+                          <Pressable accessibilityRole="button" onPress={() => setQuoteModalVisible(false)} className="rounded-full border border-slate-600 px-3 py-2">
+                            <Text className="text-sm font-semibold text-slate-200">Close</Text>
+                          </Pressable>
+                        </View>
+                        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 24 }}>
+                          <View className="rounded-2xl border border-cyan-500/25 bg-cyan-500/5 p-4">
+                            <Text className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-200">TechUp · Repair quotation</Text>
+                            <Text className="mt-2 text-sm font-semibold text-white">
+                              {selectedRequest.deviceType} {selectedRequest.brand ?? ''} {selectedRequest.model ?? ''}
+                            </Text>
+                            <Text className="mt-1 text-xs text-slate-400">{selectedRequest.issueDescription}</Text>
+                          </View>
+                          <Text className="mb-1 mt-4 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Diagnosis & recommended repair</Text>
+                          <Text className="text-sm leading-6 text-slate-100">{quoteDetails?.diagnosis ?? 'Diagnosis details unavailable.'}</Text>
+                          <View className="mt-4 overflow-hidden rounded-2xl border border-slate-700">
+                            {quoteDetails?.hasBreakdown ? (
+                              <>
+                                <View className="flex-row justify-between border-b border-slate-700 px-4 py-3">
+                                  <Text className="flex-1 pr-3 text-sm text-slate-200">
+                                    {quoteDetails.partName
+                                      ? `${quoteDetails.partCondition === 'second_hand' ? 'Second-hand' : 'New'} ${quoteDetails.partName}`
+                                      : 'Replacement part'}
+                                  </Text>
+                                  <Text className="text-sm font-semibold text-white">RWF {quoteDetails.partCost.toLocaleString()}</Text>
+                                </View>
+                                <View className="flex-row justify-between border-b border-slate-700 px-4 py-3">
+                                  <Text className="text-sm text-slate-200">Labor</Text>
+                                  <Text className="text-sm font-semibold text-white">RWF {quoteDetails.laborCost.toLocaleString()}</Text>
+                                </View>
+                              </>
+                            ) : (
+                              <View className="flex-row justify-between border-b border-slate-700 px-4 py-3">
+                                <Text className="text-sm text-slate-200">Repair service</Text>
+                                <Text className="text-sm font-semibold text-white">RWF {quoteDetails?.total}</Text>
+                              </View>
+                            )}
+                            <View className="flex-row justify-between bg-emerald-500/10 px-4 py-4">
+                              <Text className="text-sm font-bold uppercase tracking-[0.1em] text-emerald-200">Total</Text>
+                              <Text className="text-lg font-black text-white">RWF {quoteDetails?.total}</Text>
+                            </View>
+                          </View>
+                          <Text className="mt-4 text-xs font-semibold text-cyan-200">TechUp support: {quoteDetails?.contactPhone}</Text>
+                          <Text className="mt-1 text-xs leading-5 text-slate-400">Repair work starts after you approve this quotation.</Text>
+                          <Pressable
+                            disabled={downloadingQuote}
+                            onPress={handleDownloadQuotation}
+                            className="mt-4 rounded-xl border border-cyan-400 bg-cyan-500/10 px-4 py-3"
+                            style={{ opacity: downloadingQuote ? 0.6 : 1 }}
+                          >
+                            <Text className="text-center text-xs font-bold uppercase tracking-[0.12em] text-cyan-100">
+                              {downloadingQuote ? 'Preparing PDF…' : 'Print / save quotation as PDF'}
+                            </Text>
+                          </Pressable>
+                          <View className="mt-3 flex-row gap-2">
+                            <Pressable onPress={() => handleQuoteDecision('approve')} className="flex-1 rounded-xl bg-emerald-500 px-3 py-3">
+                              <Text className="text-center text-xs font-bold uppercase tracking-[0.12em] text-emerald-950">Approve quotation</Text>
+                            </Pressable>
+                            <Pressable onPress={() => handleQuoteDecision('reject')} className="flex-1 rounded-xl border border-rose-500 bg-rose-500/10 px-3 py-3">
+                              <Text className="text-center text-xs font-bold uppercase tracking-[0.12em] text-rose-200">Reject quotation</Text>
+                            </Pressable>
+                          </View>
+                        </ScrollView>
                       </View>
                     </View>
-                  ) : null}
+                  </Modal>
 
                   <View className="mt-3 rounded-xl border border-slate-700 bg-[#111827] p-3">
                     <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-cyan-300">Progress</Text>
@@ -458,7 +651,7 @@ export default function CustomerScreen() {
                           <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-cyan-300">{repair.status}</Text>
                         </View>
                         <Text className="mt-1 text-[11px] text-slate-400">
-                          {repair.preferredTime ?? 'Schedule pending'} • ${amount || 0}
+                          {String(repair.status ?? '').toLowerCase() === 'scheduled' ? 'Scheduled' : 'Preferred time'}: {formatScheduleTime(repair.preferredTime)} • ${amount || 0}
                         </Text>
                       </Pressable>
                     );

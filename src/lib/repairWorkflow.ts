@@ -13,6 +13,7 @@ const repairStatusIndexMap: Record<string, number> = {
   submitted: 0,
   pending: 0,
   under_review: 1,
+  schedule_rejected: 1,
   review: 1,
   technician_assigned: 2,
   assigned: 2,
@@ -33,5 +34,8 @@ export function getRepairStatusIndex(status: string | null | undefined): number 
 }
 
 export function formatRepairStatus(status: string | null | undefined): string {
+  if (status === 'schedule_rejected') {
+    return 'Technician being reassigned';
+  }
   return String(status ?? 'submitted').replace(/_/g, ' ');
 }

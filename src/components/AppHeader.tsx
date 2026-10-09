@@ -1,6 +1,7 @@
 import { usePathname, useRouter } from 'expo-router';
 import { Bell, LogOut, Moon, Sun, UserRound } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 import { Pressable, ScrollView, Text, View } from './ThemedNative';
 import { BrandLogo } from './BrandLogo';
 import { useAppTheme } from '../providers/AppThemeProvider';
@@ -62,6 +63,22 @@ export function AppHeader() {
   useEffect(() => {
     void loadNotifications();
   }, [loadNotifications, pathname]);
+
+  useEffect(() => {
+    if (user?.role !== 'customer') return;
+
+    const interval = setInterval(() => {
+      if (AppState.currentState === 'active') void loadNotifications();
+    }, 5000);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void loadNotifications();
+    });
+
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [loadNotifications, user?.role]);
 
   async function toggleNotifications() {
     if (user?.role !== 'customer') {

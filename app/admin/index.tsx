@@ -1,9 +1,8 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import {
   AlertTriangle,
   BadgeCheck,
-  CalendarClock,
   CheckCircle2,
   CircleDollarSign,
   Eye,
@@ -16,7 +15,8 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
@@ -70,7 +70,6 @@ export default function AdminScreen() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [quoteEditorId, setQuoteEditorId] = useState<number | null>(null);
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<Record<number, number>>({});
-  const [preferredTime, setPreferredTime] = useState<Record<number, string>>({});
   const [quoteDrafts, setQuoteDrafts] = useState<Record<number, {
     summary: string;
     diagnosis: string;
@@ -82,8 +81,8 @@ export default function AdminScreen() {
 
   async function loadDashboard() {
     try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/admin/dashboard`);
+      if (!dashboard) setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/admin/dashboard?userId=${user?.id}`);
       if (!response.ok) {
         throw new Error('Unable to load dashboard');
       }
@@ -98,19 +97,15 @@ export default function AdminScreen() {
     }
   }
 
-  useEffect(() => {
-    if (user?.role === 'admin') {
-      loadDashboard();
-    }
-  }, [user?.role]);
+  useLiveRefresh(loadDashboard, user?.role === 'admin');
 
-  async function handleReviewRequest(requestId: number, nextStatus: 'under_review' | 'approved') {
+  async function handleReviewRequest(requestId: number) {
     try {
       setActionMessage(null);
-      const response = await fetch(`${API_BASE_URL}/admin/repair-requests/${requestId}/status`, {
-        method: 'PATCH',
+      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/review`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify({ userId: user?.id }),
       });
 
       const data = await response.json();
@@ -118,7 +113,7 @@ export default function AdminScreen() {
         throw new Error(data?.error ?? 'Unable to update request');
       }
 
-      setActionMessage(`Request #${requestId} marked as ${nextStatus.replace('_', ' ')}.`);
+      setActionMessage(`Request #${requestId} sent to a manager for review.`);
       await loadDashboard();
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : 'Unable to update request');
@@ -127,56 +122,7 @@ export default function AdminScreen() {
 
   async function handleAssignTechnician(requestId: number) {
     setActionMessage(null);
-    const technicianId = selectedTechnicianId[requestId] ?? dashboard?.technicians?.[0]?.id;
-    if (!technicianId) {
-      setActionMessage('No technician is available to assign to this request.');
-      return;
-    }
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/assign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ technicianId, serviceFee: 120 }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to assign technician');
-      setActionMessage(`Technician has been assigned to request #${requestId}.`);
-      await loadDashboard();
-    } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Unable to assign technician');
-    }
-  }
-
-  async function handleScheduleRequest(requestId: number) {
-    setActionMessage(null);
-    const technicianId = selectedTechnicianId[requestId] ?? dashboard?.technicians?.[0]?.id;
-    const scheduleTime = preferredTime[requestId] ?? 'Tomorrow, 10:00 AM';
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/schedule`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferredTime: scheduleTime, technicianId, note: 'Schedule confirmed by admin.' }),
-      });
-
-      const text = await response.text();
-      let data: any = null;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = null;
-      }
-
-      if (!response.ok) {
-        throw new Error(data?.error ?? `Unable to schedule request (${response.status})`);
-      }
-
-      setActionMessage(`Schedule confirmed for request #${requestId}.`);
-      await loadDashboard();
-    } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Unable to schedule request');
-    }
+    setActionMessage('Repair requests must be reviewed and assigned by a manager. Use the manager dashboard to continue.');
   }
 
   function openQuoteTemplate(requestId: number, request: ReviewQueueItem) {
@@ -391,18 +337,18 @@ export default function AdminScreen() {
                       <View className="gap-2">
                         <View className="flex-row gap-2">
                           <Pressable
-                            onPress={() => handleReviewRequest(request.id, 'under_review')}
+                            onPress={() => handleReviewRequest(request.id)}
                             className="flex-1 flex-row items-center justify-center gap-1 rounded-xl border border-cyan-500 bg-cyan-500/10 px-2 py-2.5"
                           >
                             <Eye size={12} color="#7dd3fc" />
                             <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-cyan-200">Review</Text>
                           </Pressable>
                           <Pressable
-                            onPress={() => handleReviewRequest(request.id, 'approved')}
-                            className="flex-1 flex-row items-center justify-center gap-1 rounded-xl bg-blue-600 px-2 py-2.5"
+                            onPress={() => setActionMessage('Only a manager may approve and assign a repair request.')}
+                            className="flex-1 flex-row items-center justify-center gap-1 rounded-xl border border-slate-600 bg-slate-700/40 px-2 py-2.5"
                           >
                             <CheckCircle2 size={12} color="#fff" />
-                            <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-white">Approve</Text>
+                            <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-slate-300">Manager review required</Text>
                           </Pressable>
                         </View>
 
@@ -430,21 +376,8 @@ export default function AdminScreen() {
                               <UserRoundCog size={12} color="#6ee7b7" />
                               <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-200">Assign</Text>
                             </Pressable>
-                            <Pressable
-                              onPress={() => handleScheduleRequest(request.id)}
-                              className="flex-1 flex-row items-center justify-center gap-1 rounded-xl border border-amber-500 bg-amber-500/10 px-2 py-2.5"
-                            >
-                              <CalendarClock size={12} color="#fcd34d" />
-                              <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-amber-200">Schedule</Text>
-                            </Pressable>
                           </View>
-                          <TextInput
-                            value={preferredTime[request.id] ?? 'Tomorrow, 10:00 AM'}
-                            onChangeText={(value) => setPreferredTime((previous) => ({ ...previous, [request.id]: value }))}
-                            placeholder="Preferred time"
-                            placeholderTextColor="#94a3b8"
-                            className="mt-3 rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-slate-100"
-                          />
+                          <Text className="mt-3 text-xs text-slate-400">Scheduling is available only to the assigned technician.</Text>
                         </View>
 
                         <View className="flex-row gap-2">
