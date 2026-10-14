@@ -28,6 +28,12 @@ const repairStatusIndexMap: Record<string, number> = {
   cancelled: 7,
 };
 
+const inactiveTechnicianStatuses = new Set(['closed', 'cancelled', 'rejected']);
+
+export function isActiveTechnicianJob(status: string | null | undefined): boolean {
+  return !inactiveTechnicianStatuses.has(String(status ?? '').trim().toLowerCase());
+}
+
 export function getRepairStatusIndex(status: string | null | undefined): number {
   const normalized = String(status ?? 'submitted').toLowerCase().replace(/\s+/g, '_');
   return repairStatusIndexMap[normalized] ?? 0;

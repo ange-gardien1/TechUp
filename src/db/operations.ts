@@ -1,5 +1,6 @@
 import { count, desc, eq, sql } from 'drizzle-orm';
 import { db } from './client';
+import { isActiveTechnicianJob } from '../lib/repairWorkflow';
 import {
   customerProfiles,
   cmsPages,
@@ -21,7 +22,26 @@ import {
   users,
 } from './schema';
 
-export async function initializeDatabase() {
+let databaseInitialization: Promise<void> | null = null;
+
+export function initializeDevelopmentDatabase(): Promise<void> {
+  if (process.env.NODE_ENV !== 'development' || process.env.ALLOW_DEVELOPMENT_SEED !== 'true') {
+    return Promise.reject(new Error(
+      'Development database initialization requires NODE_ENV=development and ALLOW_DEVELOPMENT_SEED=true.',
+    ));
+  }
+
+  if (!databaseInitialization) {
+    databaseInitialization = initializeDatabaseOnce().catch((error: unknown) => {
+      databaseInitialization = null;
+      throw error;
+    });
+  }
+
+  return databaseInitialization;
+}
+
+async function initializeDatabaseOnce() {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -109,6 +129,10 @@ export async function initializeDatabase() {
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
       completed_at TIMESTAMPTZ
     );
+  `);
+  await db.execute(sql`
+    ALTER TABLE repair_requests
+    ADD COLUMN IF NOT EXISTS customer_phone TEXT;
   `);
 
   await db.execute(sql`
@@ -317,7 +341,7 @@ export async function initializeDatabase() {
     );
   `);
 
-  const existingUsers = await db.select().from(users).limit(1);
+  const existingUsers = await db.select({ id: users.id }).from(users).limit(1);
   if (existingUsers.length === 0) {
     const insertedUsers = await db.insert(users).values([
       { fullName: 'Alicia Chen', email: 'alicia@teckup.app', role: 'customer', status: 'active' },
@@ -489,10 +513,28 @@ export async function getDashboardSummary() {
   };
 }
 
-export async function getAdminDashboardSummary() {
+export async function getAdminDashboardSummary(
+  onQueryTiming?: (name: string, elapsedMs: number) => void,
+) {
+  async function timedQuery<T>(name: string, query: () => PromiseLike<T>) {
+    const startedAt = process.hrtime.bigint();
+    try {
+      const result = await query();
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      onQueryTiming?.(name, elapsedMs);
+      if (elapsedMs >= 1_000) console.warn(`Slow admin dashboard query "${name}" took ${elapsedMs.toFixed(1)}ms.`);
+      return result;
+    } catch (error) {
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      onQueryTiming?.(name, elapsedMs);
+      console.error(`Admin dashboard query "${name}" failed after ${elapsedMs.toFixed(1)}ms.`, error);
+      throw error;
+    }
+  }
+
   const [userCountResult, repairRows, productCountResult, paymentTotalResult, roleCountsResult, disputeCountResult, technicians] = await Promise.all([
-    db.select({ count: count(users.id) }).from(users),
-    db.select({
+    timedQuery('user_count', () => db.select({ count: count(users.id) }).from(users)),
+    timedQuery('recent_repair_queue', () => db.select({
       id: repairRequests.id,
       customerId: repairRequests.customerId,
       deviceType: repairRequests.deviceType,
@@ -508,16 +550,16 @@ export async function getAdminDashboardSummary() {
       .from(repairRequests)
       .leftJoin(users, eq(repairRequests.customerId, users.id))
       .orderBy(desc(repairRequests.createdAt))
-      .limit(8),
-    db.select({ count: count(products.id) }).from(products),
-    db.select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` }).from(payments),
-    db.select({ role: users.role, count: count(users.id) }).from(users).groupBy(users.role),
-    db.select({ count: count(disputes.id) }).from(disputes),
-    db.select({
+      .limit(8)),
+    timedQuery('product_count', () => db.select({ count: count(products.id) }).from(products)),
+    timedQuery('payment_total', () => db.select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` }).from(payments)),
+    timedQuery('user_role_counts', () => db.select({ role: users.role, count: count(users.id) }).from(users).groupBy(users.role)),
+    timedQuery('pending_dispute_count', () => db.select({ count: count(disputes.id) }).from(disputes)),
+    timedQuery('technician_list', () => db.select({
       id: users.id,
       fullName: users.fullName,
       email: users.email,
-    }).from(users).where(eq(users.role, 'technician')),
+    }).from(users).where(eq(users.role, 'technician'))),
   ]);
 
   const totalRevenue = Number(paymentTotalResult[0]?.total ?? 0);
@@ -564,6 +606,12 @@ export async function getManagerDashboardSummary() {
       issueDescription: repairRequests.issueDescription,
       status: repairRequests.status,
       preferredTime: repairRequests.preferredTime,
+      customerPhone: repairRequests.customerPhone,
+      hasPhoto: sql<boolean>`CASE
+        WHEN jsonb_typeof(${repairRequests.images}) = 'array'
+        THEN jsonb_array_length(${repairRequests.images}) > 0
+        ELSE FALSE
+      END`,
       quoteAmount: repairRequests.quoteAmount,
       createdAt: repairRequests.createdAt,
     })
@@ -577,13 +625,13 @@ export async function getManagerDashboardSummary() {
     })
       .from(users)
       .where(eq(users.role, 'technician')),
-    db.select({
+    db.selectDistinctOn([repairUpdates.repairRequestId], {
       repairRequestId: repairUpdates.repairRequestId,
       message: repairUpdates.message,
     })
       .from(repairUpdates)
       .where(eq(repairUpdates.status, 'diagnosis_update'))
-      .orderBy(desc(repairUpdates.createdAt)),
+      .orderBy(repairUpdates.repairRequestId, desc(repairUpdates.createdAt), desc(repairUpdates.id)),
   ]);
   const diagnosisByRequest = new Map<number, string>();
   for (const update of diagnosisUpdates) {
@@ -604,6 +652,7 @@ export async function getManagerDashboardSummary() {
       id: request.id,
       customer: request.customerName ?? 'Unknown customer',
       customerId: request.customerId,
+      customerPhone: request.customerPhone,
       technicianId: request.technicianId,
       device: request.deviceType,
       issue: request.issueDescription,
@@ -639,7 +688,7 @@ export async function getTechnicianDashboardSummary(technicianId: number) {
 
   return {
     assignedCount: requests.length,
-    activeJobs: requests.filter((request) => !['closed', 'cancelled', 'rejected'].includes(request.status ?? '')).length,
+    activeJobs: requests.filter((request) => isActiveTechnicianJob(request.status)).length,
     quotePending: requests.filter((request) => request.status === 'customer_approval').length,
     requests: requests.map((request) => ({
       id: request.id,

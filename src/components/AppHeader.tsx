@@ -1,12 +1,13 @@
 import { usePathname, useRouter } from 'expo-router';
-import { Bell, LogOut, Moon, Sun, UserRound } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Bell, LogOut, Moon, Sun, UserRound, X } from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { Pressable, ScrollView, Text, View } from './ThemedNative';
+import { Modal, Pressable, ScrollView, Text, View } from './ThemedNative';
 import { BrandLogo } from './BrandLogo';
 import { useAppTheme } from '../providers/AppThemeProvider';
 import { useAuth } from '../providers/AuthProvider';
 import { apiRequest } from '../lib/api';
+import { useAudioPlayer } from 'expo-audio';
 
 type NotificationItem = {
   id: number;
@@ -14,7 +15,11 @@ type NotificationItem = {
   body: string;
   type: string;
   isRead: boolean;
+  referenceId: number | null;
+  createdAt: string;
 };
+
+const notificationSound = require('../../assets/notification-beep.wav');
 
 export function AppHeader() {
   const router = useRouter();
@@ -23,6 +28,10 @@ export function AppHeader() {
   const { isDark, toggleTheme } = useAppTheme();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const seenNotificationIds = useRef<Set<number> | null>(null);
+  const isLoadingNotifications = useRef(false);
+  const notificationPlayer = useAudioPlayer(notificationSound);
   const pageColors = isDark
     ? { page: '#0B1220', surface: '#121D31', border: '#26344A', text: '#F1F5F9', muted: '#A6B2C5' }
     : { page: '#F5F8FC', surface: '#FFFFFF', border: '#E4EAF3', text: '#0B1437', muted: '#64748B' };
@@ -42,30 +51,51 @@ export function AppHeader() {
     .map((part) => part[0]?.toUpperCase())
     .join('') ?? '';
   const unreadCount = useMemo(
-    () => notifications.filter((notification) => notification.type === 'quote' && !notification.isRead).length,
+    () => notifications.filter((notification) => !notification.isRead).length,
     [notifications],
   );
 
   const loadNotifications = useCallback(async () => {
-    if (!user || user.role !== 'customer') {
+    if (!user) {
       setNotifications([]);
       setNotificationsOpen(false);
+      seenNotificationIds.current = null;
       return;
     }
+    if (isLoadingNotifications.current) return;
+    isLoadingNotifications.current = true;
     try {
       const rows = await apiRequest<NotificationItem[]>(`/notifications/${user.id}`);
+      if (seenNotificationIds.current === null) {
+        seenNotificationIds.current = new Set(rows.map((item) => item.id));
+      } else {
+        const newUnread = rows.some(
+          (item) => !item.isRead && !seenNotificationIds.current?.has(item.id),
+        );
+        if (newUnread) {
+          try {
+            await notificationPlayer.seekTo(0);
+            notificationPlayer.play();
+          } catch (error) {
+            console.error('Unable to play notification sound', error);
+          }
+        }
+        seenNotificationIds.current = new Set(rows.map((item) => item.id));
+      }
       setNotifications(rows);
     } catch (error) {
-      console.error('Unable to load customer notifications', error);
+      console.error('Unable to load notifications', error);
+    } finally {
+      isLoadingNotifications.current = false;
     }
-  }, [user]);
+  }, [notificationPlayer, user]);
 
   useEffect(() => {
     void loadNotifications();
   }, [loadNotifications, pathname]);
 
   useEffect(() => {
-    if (user?.role !== 'customer') return;
+    if (!user) return;
 
     const interval = setInterval(() => {
       if (AppState.currentState === 'active') void loadNotifications();
@@ -78,39 +108,45 @@ export function AppHeader() {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [loadNotifications, user?.role]);
+  }, [loadNotifications, user?.id]);
 
   async function toggleNotifications() {
-    if (user?.role !== 'customer') {
-      router.push(user ? `/${user.role}` : '/login');
-      return;
-    }
     if (notificationsOpen) {
       setNotificationsOpen(false);
       return;
     }
 
     setNotificationsOpen(true);
-    const unreadIds = notifications.slice(0, 4)
-      .filter((item) => !item.isRead)
-      .map((item) => item.id);
-    if (unreadIds.length === 0) return;
+    await loadNotifications();
+  }
 
-    const unreadSet = new Set(unreadIds);
-    setNotifications((current) => current.map((item) => (
-      unreadSet.has(item.id) ? { ...item, isRead: true } : item
-    )));
-    try {
-      await apiRequest(`/notifications/${user.id}/read`, {
-        method: 'POST',
-        body: JSON.stringify({ notificationIds: unreadIds }),
-      });
-    } catch (error) {
-      setNotifications((current) => current.map((item) => (
-        unreadSet.has(item.id) ? { ...item, isRead: false } : item
-      )));
-      console.error('Unable to mark customer notifications as read', error);
+  async function handleNotificationPress(item: NotificationItem) {
+    setNotificationError(null);
+    if (!item.isRead) {
+      try {
+        await apiRequest(`/notifications/${user?.id}/read`, {
+          method: 'POST',
+          body: JSON.stringify({ notificationIds: [item.id] }),
+        });
+        setNotifications((current) => current.map((notification) => (
+          notification.id === item.id ? { ...notification, isRead: true } : notification
+        )));
+      } catch (error) {
+        setNotificationError(error instanceof Error ? error.message : 'Unable to mark notification as read.');
+        return;
+      }
     }
+    const target = user?.role === 'customer'
+      ? '/customer'
+      : user?.role === 'technician'
+        ? '/technician'
+        : user?.role === 'manager'
+          ? '/manager'
+          : user?.role === 'admin'
+            ? '/admin'
+            : null;
+    setNotificationsOpen(false);
+    if (target && pathname !== target) router.push(target);
   }
 
   async function handleLogout() {
@@ -150,7 +186,7 @@ export function AppHeader() {
             style={{ backgroundColor: pageColors.surface, borderColor: pageColors.border }}
           >
             <Bell size={21} color={pageColors.text} />
-            {unreadCount > 0 ? (
+            {unreadCount > 0 && !notificationsOpen ? (
               <View className="absolute -right-1 -top-1 min-w-[18px] items-center rounded-full bg-rose-500 px-1">
                 <Text className="text-[9px] font-bold text-white">{unreadCount}</Text>
               </View>
@@ -182,23 +218,73 @@ export function AppHeader() {
           </Pressable>
         </View>
       </View>
-      {notificationsOpen && user?.role === 'customer' ? (
-        <View className="mt-2 rounded-2xl border border-[#1C2D4A] bg-[#0D1B38] p-3">
-          <Text className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">Notifications</Text>
-          {notifications.length === 0 ? (
-            <Text className="text-sm text-slate-300">No updates yet.</Text>
-          ) : (
-            <ScrollView className="max-h-48" showsVerticalScrollIndicator={false}>
-              {notifications.slice(0, 4).map((item) => (
-                <View key={item.id} className="mb-2 rounded-xl border border-slate-700 bg-[#101F3D] p-2 last:mb-0">
-                  <Text className="text-sm font-semibold text-white">{item.title}</Text>
-                  <Text className="mt-1 text-xs text-slate-300">{item.body}</Text>
-                </View>
-              ))}
-            </ScrollView>
-          )}
+      <Modal
+        visible={notificationsOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNotificationsOpen(false)}
+      >
+        <View className="flex-1 justify-end bg-black/70 px-3 pb-6">
+          <View className="w-full self-center overflow-hidden rounded-[24px] border border-slate-700 bg-[#0D1B38] p-4" style={{ maxWidth: 400, maxHeight: '75%' }}>
+            <View className="mb-3 flex-row items-center justify-between">
+              <View>
+                <Text className="text-lg font-bold text-white">Notifications</Text>
+                <Text className="mt-1 text-xs text-slate-400">
+                  {unreadCount ? `${unreadCount} unread` : 'All caught up'}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close notifications"
+                onPress={() => setNotificationsOpen(false)}
+                className="rounded-full p-2"
+              >
+                <X size={20} color={pageColors.muted} />
+              </Pressable>
+            </View>
+            {notifications.length === 0 ? (
+              <Text className="py-6 text-center text-sm text-slate-300">No updates yet.</Text>
+            ) : (
+              <ScrollView
+                className="flex-shrink"
+                style={{ maxHeight: '100%' }}
+                showsVerticalScrollIndicator={false}
+              >
+                {notifications.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="button"
+                    onPress={() => void handleNotificationPress(item)}
+                    className={`mb-2 rounded-xl border p-3 ${
+                      item.isRead
+                        ? 'border-slate-700 bg-[#101F3D]'
+                        : 'border-cyan-400/60 bg-cyan-500/10'
+                    }`}
+                  >
+                    <View className="flex-row items-start justify-between gap-2">
+                      <Text className={`flex-1 text-sm font-semibold ${item.isRead ? 'text-slate-200' : 'text-white'}`}>
+                        {item.title}
+                      </Text>
+                      {!item.isRead ? (
+                        <View className="mt-1 h-2 w-2 rounded-full bg-cyan-300" />
+                      ) : null}
+                    </View>
+                    <Text className={`mt-1 text-xs leading-5 ${item.isRead ? 'text-slate-400' : 'text-cyan-50'}`}>
+                      {item.body}
+                    </Text>
+                    <Text className="mt-2 text-[10px] text-slate-500">
+                      {new Date(item.createdAt).toLocaleString()}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+            {notificationError ? (
+              <Text accessibilityRole="alert" className="mt-2 text-xs text-rose-300">{notificationError}</Text>
+            ) : null}
+          </View>
         </View>
-      ) : null}
+      </Modal>
     </View>
   );
 }

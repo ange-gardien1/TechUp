@@ -2,7 +2,7 @@ import { Link, Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive } from 'lucide-react-native';
 import { AppState } from 'react-native';
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
 import { apiRequest } from '../../src/lib/api';
 import { formatRepairStatus, getRepairStatusIndex, repairStatusFlow } from '../../src/lib/repairWorkflow';
 import { useAuth } from '../../src/providers/AuthProvider';
@@ -42,6 +42,15 @@ type QuotePreview = {
   createdAt: string;
 };
 
+const CANCELLABLE_CUSTOMER_STATUSES = new Set([
+  'submitted',
+  'under_review',
+  'technician_assigned',
+  'schedule_rejected',
+  'scheduled',
+  'customer_approval',
+]);
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
     '&': '&amp;',
@@ -64,6 +73,8 @@ export default function CustomerScreen() {
   const [ratedRequestIds, setRatedRequestIds] = useState<Set<number>>(new Set());
   const [downloadingQuote, setDownloadingQuote] = useState(false);
   const [quoteModalVisible, setQuoteModalVisible] = useState(false);
+  const [cancelConfirmRequestId, setCancelConfirmRequestId] = useState<number | null>(null);
+  const [cancellingRequest, setCancellingRequest] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -214,31 +225,42 @@ export default function CustomerScreen() {
   }, [selectedRequest?.id, selectedRequest?.status, user?.id]);
 
   async function handleStopRequest(requestId: number) {
-    Alert.alert('Stop this request?', 'This will cancel the current repair request and notify the company.', [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Stop request',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await apiRequest(`/repair-requests/${requestId}/cancel`, {
-              method: 'POST',
-              body: JSON.stringify({ reason: 'Customer stopped this request.' }),
-            });
+    const request = repairs.find((item) => item.id === requestId);
+    if (!request || !CANCELLABLE_CUSTOMER_STATUSES.has(String(request.status ?? '').trim().toLowerCase())) {
+      return;
+    }
+    setCancelConfirmRequestId(requestId);
+  }
 
-            setRepairs((previous) =>
-              previous.map((request) =>
-                request.id === requestId ? { ...request, status: 'cancelled', paymentStatus: 'cancelled' } : request,
-              ),
-            );
-            setSelectedRequestId(requestId);
-            setError(null);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : 'Unable to stop this request');
-          }
-        },
-      },
-    ]);
+  async function confirmStopRequest() {
+    if (cancelConfirmRequestId === null || !user?.id || cancellingRequest) return;
+
+    setCancellingRequest(true);
+    try {
+      await apiRequest(`/repair-requests/${cancelConfirmRequestId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: user.id,
+          reason: 'Customer stopped this request.',
+        }),
+      });
+
+      setRepairs((previous) =>
+        previous.map((request) =>
+          request.id === cancelConfirmRequestId
+            ? { ...request, status: 'cancelled', paymentStatus: 'cancelled' }
+            : request,
+        ),
+      );
+      setSelectedRequestId(cancelConfirmRequestId);
+      setCancelConfirmRequestId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to stop this request');
+      setCancelConfirmRequestId(null);
+    } finally {
+      setCancellingRequest(false);
+    }
   }
 
   async function handleQuoteDecision(decision: 'approve' | 'reject') {
@@ -585,14 +607,14 @@ export default function CustomerScreen() {
                     </View>
                   </View>
 
-                  {['completed', 'closed', 'cancelled', 'rejected'].includes(String(selectedRequest.status ?? '').toLowerCase()) ? null : (
+                  {CANCELLABLE_CUSTOMER_STATUSES.has(String(selectedRequest.status ?? '').trim().toLowerCase()) ? (
                     <Pressable
                       onPress={() => handleStopRequest(selectedRequest.id)}
                       className="mt-3 rounded-xl border border-rose-500 bg-rose-500/10 px-3 py-2.5"
                     >
                       <Text className="text-center text-[9px] font-bold uppercase tracking-[0.2em] text-rose-200">Stop this request</Text>
                     </Pressable>
-                  )}
+                  ) : null}
 
                   {['completed', 'closed'].includes(String(selectedRequest.status ?? '').toLowerCase()) ? (
                     ratedRequestIds.has(selectedRequest.id) ? (
@@ -663,6 +685,45 @@ export default function CustomerScreen() {
         </View>
 
       </ScrollView>
+      <Modal
+        visible={cancelConfirmRequestId !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!cancellingRequest) setCancelConfirmRequestId(null);
+        }}
+      >
+        <View className="flex-1 items-center justify-center bg-black/70 px-5">
+          <View className="w-full rounded-2xl border border-slate-700 bg-[#0D1B38] p-5" style={{ maxWidth: 380 }}>
+            <Text className="text-lg font-bold text-white">Stop this request?</Text>
+            <Text className="mt-2 text-sm leading-5 text-slate-300">
+              This will cancel the repair request and notify the company. You can stop a request only before approving its quotation.
+            </Text>
+            <View className="mt-5 flex-row gap-3">
+              <Pressable
+                accessibilityRole="button"
+                disabled={cancellingRequest}
+                onPress={() => setCancelConfirmRequestId(null)}
+                className="min-h-11 flex-1 justify-center rounded-xl border border-slate-600 px-3"
+                style={{ opacity: cancellingRequest ? 0.6 : 1 }}
+              >
+                <Text className="text-center text-sm font-semibold text-slate-200">Keep request</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={cancellingRequest}
+                onPress={() => void confirmStopRequest()}
+                className="min-h-11 flex-1 justify-center rounded-xl bg-rose-600 px-3"
+                style={{ opacity: cancellingRequest ? 0.6 : 1 }}
+              >
+                <Text className="text-center text-sm font-bold text-white">
+                  {cancellingRequest ? 'Stopping…' : 'Stop request'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       </View>
     </View>
   );

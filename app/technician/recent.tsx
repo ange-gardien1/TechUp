@@ -1,13 +1,10 @@
 import { Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
 import { formatScheduleTime } from '../../src/components/SchedulePicker';
 import { useMemo, useState } from 'react';
 import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
-
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://127.0.0.1:4000');
+import { apiRequest } from '../../src/lib/api';
 
 type TechnicianRequest = {
   id: number;
@@ -47,9 +44,7 @@ export default function TechnicianRecentScreen() {
     if (!user?.id) return;
     try {
       if (!dashboard) setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/technician/dashboard/${user.id}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to load recent jobs');
+      const data = await apiRequest<TechnicianDashboard>(`/technician/dashboard/${user.id}`);
       setDashboard(data);
       setError(null);
     } catch (err) {

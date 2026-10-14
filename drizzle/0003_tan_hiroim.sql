@@ -1,0 +1,1 @@
+ALTER TABLE "repair_requests" ADD COLUMN "customer_phone" text;

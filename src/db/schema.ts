@@ -68,6 +68,7 @@ export const repairRequests = pgTable('repair_requests', {
   latitude: doublePrecision('latitude'),
   longitude: doublePrecision('longitude'),
   preferredTime: text('preferred_time'),
+  customerPhone: text('customer_phone'),
   images: jsonb('images').default([]),
   serviceFee: doublePrecision('service_fee').default(0),
   quoteAmount: doublePrecision('quote_amount'),

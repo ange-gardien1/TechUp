@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, Text, View } from '../src/components/ThemedNative';
-
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://127.0.0.1:4000');
+import { ActivityIndicator, ScrollView, Text, View } from '../src/components/ThemedNative';
+import { apiRequest } from '../src/lib/api';
 
 type DashboardSummary = {
   userCount: number;
@@ -20,17 +17,8 @@ export default function DatabaseScreen() {
     async function loadData() {
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE_URL}/health`);
-        if (!response.ok) {
-          throw new Error('Backend is unavailable');
-        }
-
-        const summaryResponse = await fetch(`${API_BASE_URL}/database/summary`);
-        if (!summaryResponse.ok) {
-          throw new Error('Unable to load database summary');
-        }
-
-        const data = (await summaryResponse.json()) as DashboardSummary;
+        await apiRequest<unknown>('/health');
+        const data = await apiRequest<DashboardSummary>('/database/summary');
         setSummary(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Database error');

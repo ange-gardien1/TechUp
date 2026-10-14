@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { API_BASE_URL, apiRequest } from '../lib/api';
+import { apiRequest } from '../lib/api';
+import { clearSessionToken, getSessionToken, setSessionToken } from '../lib/sessionToken';
 
 export type AppRole = 'customer' | 'technician' | 'manager' | 'admin';
 
@@ -40,9 +41,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const hydrateSession = async () => {
       try {
-        const raw = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
-        if (raw) {
+        const [raw, token] = await Promise.all([
+          AsyncStorage.getItem(AUTH_STORAGE_KEY),
+          getSessionToken(),
+        ]);
+        if (raw && token) {
           setUser(JSON.parse(raw) as AppUser);
+        } else if (raw || token) {
+          await Promise.all([
+            AsyncStorage.removeItem(AUTH_STORAGE_KEY),
+            clearSessionToken(),
+          ]);
         }
       } catch (error) {
         console.error('Failed to restore auth session', error);
@@ -54,18 +63,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     hydrateSession();
   }, []);
 
-  const persistSession = useCallback(async (payload: AppUser) => {
+  const persistSession = useCallback(async (payload: AppUser, token?: string) => {
+    if (token) await setSessionToken(token);
     await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
     setUser(payload);
   }, []);
 
   const login = async (email: string, password: string) => {
-    const data = await apiRequest<{ user: AppUser }>('/auth/login', {
+    const data = await apiRequest<{ user: AppUser; token: string }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
 
-    await persistSession(data.user);
+    await persistSession(data.user, data.token);
   };
 
   const register = async (input: {
@@ -74,16 +84,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string;
     phone?: string;
   }) => {
-    const data = await apiRequest<{ user: AppUser }>('/auth/register', {
+    const data = await apiRequest<{ user: AppUser; token: string }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(input),
     });
 
-    await persistSession(data.user);
+    await persistSession(data.user, data.token);
   };
 
   const logout = async () => {
-    await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+    await Promise.all([
+      AsyncStorage.removeItem(AUTH_STORAGE_KEY),
+      clearSessionToken(),
+    ]);
     setUser(null);
   };
 

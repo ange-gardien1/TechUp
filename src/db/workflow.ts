@@ -1,6 +1,6 @@
 import { db } from './client';
 import { payments, repairQuotes, repairRequests, ratings, repairUpdates, notifications, users } from './schema';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 export async function createRepairRequest(input: {
   customerId: number;
@@ -9,6 +9,7 @@ export async function createRepairRequest(input: {
   model?: string;
   issueDescription: string;
   serviceAddress?: string;
+  customerPhone: string;
   latitude?: number;
   longitude?: number;
   preferredTime?: string;
@@ -24,6 +25,7 @@ export async function createRepairRequest(input: {
     model: input.model,
     issueDescription: input.issueDescription,
     serviceAddress: input.serviceAddress,
+    customerPhone: input.customerPhone,
     latitude: input.latitude,
     longitude: input.longitude,
     preferredTime: input.preferredTime,
@@ -33,13 +35,23 @@ export async function createRepairRequest(input: {
     paymentStatus: input.paymentStatus ?? 'pending',
   }).returning();
 
-  await db.insert(notifications).values({
-    userId: input.customerId,
-    title: 'Repair request submitted',
-    body: 'Your repair request has been received and is awaiting review.',
-    type: 'repair',
-    referenceId: request.id,
-  });
+  const managers = await db.select({ id: users.id }).from(users).where(eq(users.role, 'manager'));
+  await db.insert(notifications).values([
+    {
+      userId: input.customerId,
+      title: 'Repair request submitted',
+      body: 'Your repair request has been received and is awaiting review.',
+      type: 'repair',
+      referenceId: request.id,
+    },
+    ...managers.map((manager) => ({
+      userId: manager.id,
+      title: 'Repair request needs review',
+      body: `A new ${request.deviceType} repair request is waiting for your review.`,
+      type: 'job',
+      referenceId: request.id,
+    })),
+  ]);
 
   return request;
 }
@@ -161,11 +173,26 @@ export async function rejectIncompleteRequest(repairRequestId: number, reason: s
   return request;
 }
 
-export async function cancelRepairRequest(repairRequestId: number, reason?: string) {
+export async function cancelRepairRequest(repairRequestId: number, customerId: number, reason?: string) {
   const [request] = await db.update(repairRequests)
     .set({ status: 'cancelled', paymentStatus: 'cancelled', updatedAt: new Date() })
-    .where(eq(repairRequests.id, repairRequestId))
+    .where(and(
+      eq(repairRequests.id, repairRequestId),
+      eq(repairRequests.customerId, customerId),
+      inArray(repairRequests.status, [
+        'submitted',
+        'under_review',
+        'technician_assigned',
+        'schedule_rejected',
+        'scheduled',
+        'customer_approval',
+      ]),
+    ))
     .returning();
+
+  if (!request) {
+    throw new Error('This request can no longer be stopped. Once you approve the quotation, contact the manager for help.');
+  }
 
   await db.insert(notifications).values({
     userId: request.customerId ?? 0,
@@ -219,6 +246,9 @@ export async function confirmServiceFee(repairRequestId: number) {
 }
 
 export async function addTechnicianRepairNote(repairRequestId: number, technicianId: number, message: string, status?: string) {
+  const [request] = await db.select().from(repairRequests).where(eq(repairRequests.id, repairRequestId));
+  if (!request) throw new Error('Repair request not found.');
+
   const [update] = await db.insert(repairUpdates).values({
     repairRequestId,
     userId: technicianId,
@@ -226,6 +256,17 @@ export async function addTechnicianRepairNote(repairRequestId: number, technicia
     status: status ?? 'diagnosis_update',
     isCustomerVisible: false,
   }).returning();
+
+  const managers = await db.select({ id: users.id }).from(users).where(eq(users.role, 'manager'));
+  if (managers.length > 0) {
+    await db.insert(notifications).values(managers.map((manager) => ({
+      userId: manager.id,
+      title: 'Technician update received',
+      body: `The technician added a private update to repair request #${repairRequestId}.`,
+      type: 'job',
+      referenceId: repairRequestId,
+    })));
+  }
 
   return update;
 }
@@ -304,6 +345,15 @@ export async function approveRepairQuote(repairRequestId: number) {
     type: 'repair',
     referenceId: request.id,
   });
+  if (request.technicianId) {
+    await db.insert(notifications).values({
+      userId: request.technicianId,
+      title: 'Customer approved the quote',
+      body: 'The customer approved the repair quote. You can begin the repair.',
+      type: 'job',
+      referenceId: request.id,
+    });
+  }
 
   return request;
 }
@@ -325,6 +375,15 @@ export async function rejectRepairQuote(repairRequestId: number) {
     type: 'repair',
     referenceId: request.id,
   });
+  if (request.technicianId) {
+    await db.insert(notifications).values({
+      userId: request.technicianId,
+      title: 'Customer rejected the quote',
+      body: 'The customer rejected the repair quote. Review the request with your manager.',
+      type: 'job',
+      referenceId: request.id,
+    });
+  }
 
   return request;
 }
@@ -353,13 +412,25 @@ export async function completeRepair(repairRequestId: number, notes: string, pho
     });
   }
 
-  await db.insert(notifications).values({
-    userId: request.customerId ?? 0,
-    title: 'Repair completed',
-    body: 'The technician has completed the repair and the manager will review the closure.',
-    type: 'repair',
-    referenceId: request.id,
-  });
+  const notificationsToCreate = [
+    ...(request.customerId ? [{
+      userId: request.customerId,
+      title: 'Repair completed',
+      body: 'The technician has completed the repair and the manager will review the closure.',
+      type: 'repair',
+      referenceId: request.id,
+    }] : []),
+    ...((await db.select({ id: users.id }).from(users).where(eq(users.role, 'manager'))).map((manager) => ({
+      userId: manager.id,
+      title: 'Repair ready for closure review',
+      body: `The technician completed repair request #${request.id}. Review and approve closure.`,
+      type: 'job',
+      referenceId: request.id,
+    }))),
+  ];
+  if (notificationsToCreate.length > 0) {
+    await db.insert(notifications).values(notificationsToCreate);
+  }
 
   return request;
 }

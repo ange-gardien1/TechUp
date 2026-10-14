@@ -1,5 +1,5 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
 import { apiRequest } from '../../src/lib/api';
 import { formatScheduleTime } from '../../src/components/SchedulePicker';
@@ -8,14 +8,12 @@ import { QuoteComposerModal, type QuoteForm } from '../../src/components/QuoteCo
 import { useMemo, useState } from 'react';
 import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://127.0.0.1:4000');
-
 type ManagerTask = {
   id: number;
   customer: string;
   customerId: number | null;
+  customerPhone: string | null;
+  hasPhoto: boolean;
   technicianId: number | null;
   device: string;
   issue: string;
@@ -52,6 +50,7 @@ export default function ManagerScreen() {
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<Record<number, number>>({});
   const [quoteDialogRequestId, setQuoteDialogRequestId] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [requestPhoto, setRequestPhoto] = useState<string | null>(null);
 
   async function loadDashboard() {
     try {
@@ -96,13 +95,11 @@ export default function ManagerScreen() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/assign`, {
+      await apiRequest(`/repair-requests/${requestId}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user?.id, technicianId, serviceFee: 120 }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to assign technician');
       setStatusMessage(`Technician assigned for request #${requestId}.`);
       await loadDashboard();
     } catch (err) {
@@ -126,17 +123,29 @@ export default function ManagerScreen() {
 
   async function handleApproveClosure(requestId: number) {
     try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/close`, {
+      await apiRequest(`/repair-requests/${requestId}/close`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user?.id, reason: 'Manager approved the completed repair and closed the request for the customer.' }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to close request');
       setStatusMessage(`Request #${requestId} was closed and marked complete.`);
       await loadDashboard();
     } catch (err) {
       setStatusMessage(err instanceof Error ? err.message : 'Unable to close request');
+    }
+  }
+
+  async function handleViewRequestPhoto(requestId: number) {
+    try {
+      const request = await apiRequest<{ images?: string[] }>(`/repair-requests/${requestId}?userId=${user?.id}`);
+      const image = request.images?.[0];
+      if (!image) {
+        setStatusMessage('No photo is attached to this request.');
+        return;
+      }
+      setRequestPhoto(image);
+    } catch (err) {
+      setStatusMessage(err instanceof Error ? err.message : 'Unable to load the attached photo.');
     }
   }
 
@@ -145,7 +154,6 @@ export default function ManagerScreen() {
     if (!technicianId) {
       throw new Error('No technician is assigned to this request. Assign a technician before creating a quotation.');
     }
-
     const partCost = Number(form.partCost);
     const laborCost = Number(form.laborCost);
     await apiRequest(`/repair-requests/${requestId}/quotes`, {
@@ -259,7 +267,17 @@ export default function ManagerScreen() {
                         <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-amber-300">{formatRepairStatus(task.status)}</Text>
                       </View>
                       <Text className="text-sm text-slate-300">Customer: {task.customer}</Text>
+                      <Text className="mt-1 text-xs text-slate-400">Phone: {task.customerPhone ?? 'Not provided'}</Text>
                       <Text className="mt-1 text-xs text-slate-400">{task.issue}</Text>
+                      {task.hasPhoto ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => void handleViewRequestPhoto(task.id)}
+                          className="mt-2 self-start rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2"
+                        >
+                          <Text className="text-xs font-semibold text-cyan-200">View attached photo</Text>
+                        </Pressable>
+                      ) : null}
                       <Text className="mt-2 text-xs text-slate-500">
                         {task.preferredTime ? `Preferred time: ${formatScheduleTime(task.preferredTime)}` : 'Time to be scheduled'}
                       </Text>
@@ -384,6 +402,21 @@ export default function ManagerScreen() {
           </>
         ) : null}
       </ScrollView>
+      <Modal
+        visible={Boolean(requestPhoto)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRequestPhoto(null)}
+      >
+        <View className="flex-1 items-center justify-center bg-black/80 px-5 py-8">
+          <View className="w-full overflow-hidden rounded-2xl border border-slate-700 bg-[#111827] p-4" style={{ maxWidth: 520 }}>
+            <Image source={{ uri: requestPhoto ?? undefined }} className="h-80 w-full rounded-xl" resizeMode="contain" />
+            <Pressable onPress={() => setRequestPhoto(null)} className="mt-3 min-h-11 justify-center rounded-xl bg-[#1677FF] px-4">
+              <Text className="text-center text-sm font-bold text-white">Close photo</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

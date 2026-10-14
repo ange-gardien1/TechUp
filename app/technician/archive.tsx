@@ -1,13 +1,11 @@
 import { Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
 import { formatScheduleTime } from '../../src/components/SchedulePicker';
 import { useMemo, useState } from 'react';
 import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
-
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://127.0.0.1:4000');
+import { apiRequest } from '../../src/lib/api';
+import { isActiveTechnicianJob } from '../../src/lib/repairWorkflow';
 
 type TechnicianRequest = {
   id: number;
@@ -28,8 +26,6 @@ type TechnicianDashboard = {
   requests: TechnicianRequest[];
 };
 
-const ARCHIVE_STATUSES = new Set(['closed', 'cancelled', 'rejected']);
-
 const statusTone: Record<string, { label: string; bg: string; text: string }> = {
   completed: { label: 'Completed', bg: '#14532d', text: '#bbf7d0' },
   closed: { label: 'Closed', bg: '#1f2937', text: '#e2e8f0' },
@@ -49,9 +45,7 @@ export default function TechnicianArchiveScreen() {
     if (!user?.id) return;
     try {
       if (!dashboard) setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/technician/dashboard/${user.id}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to load archive');
+      const data = await apiRequest<TechnicianDashboard>(`/technician/dashboard/${user.id}`);
       setDashboard(data);
       setError(null);
     } catch (err) {
@@ -66,7 +60,7 @@ export default function TechnicianArchiveScreen() {
   const archiveJobs = useMemo(
     () =>
       (dashboard?.requests ?? [])
-        .filter((job) => ARCHIVE_STATUSES.has(String(job.status ?? '').toLowerCase()))
+        .filter((job) => !isActiveTechnicianJob(job.status))
         .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()),
     [dashboard?.requests],
   );

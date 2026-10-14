@@ -1,8 +1,10 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -11,9 +13,11 @@ import {
   View,
 } from '../../src/components/ThemedNative';
 import { ArrowLeft, CheckCircle2, Laptop, Smartphone, Wrench } from 'lucide-react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../../src/lib/api';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { SchedulePicker } from '../../src/components/SchedulePicker';
+import { formatScheduleTime, SchedulePicker } from '../../src/components/SchedulePicker';
 
 type SubmittedRequest = {
   id: number;
@@ -29,16 +33,25 @@ const deviceTypes = [
   { label: 'Home electronics', icon: Wrench },
 ];
 
+const MAX_PHOTO_BASE64_LENGTH = 5_500_000;
+
 export default function CustomerNewRequestScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const cameraRef = useRef<CameraView>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [deviceType, setDeviceType] = useState('');
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [issueDescription, setIssueDescription] = useState('');
+  const [customerPhone, setCustomerPhone] = useState(user?.phone ?? '');
   const [serviceAddress, setServiceAddress] = useState('');
   const [preferredTime, setPreferredTime] = useState('');
-  const [photoNote, setPhotoNote] = useState('');
+  const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
+  const [cameraModalVisible, setCameraModalVisible] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [takingPhoto, setTakingPhoto] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<{ uri: string; dataUrl: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submittedRequest, setSubmittedRequest] = useState<SubmittedRequest | null>(null);
@@ -56,9 +69,15 @@ export default function CustomerNewRequestScreen() {
   async function handleSubmit() {
     const trimmedDeviceType = deviceType.trim();
     const trimmedIssue = issueDescription.trim();
+    const trimmedPhone = customerPhone.trim();
+    const phoneDigits = trimmedPhone.replace(/\D/g, '');
 
     if (!trimmedDeviceType || !trimmedIssue) {
       setError('Choose or enter a device type and describe the issue to continue.');
+      return;
+    }
+    if (!/^\+?[0-9().\s-]+$/.test(trimmedPhone) || phoneDigits.length < 7 || phoneDigits.length > 15) {
+      setError('Enter a valid customer phone number (7 to 15 digits).');
       return;
     }
 
@@ -70,13 +89,14 @@ export default function CustomerNewRequestScreen() {
         method: 'POST',
         body: JSON.stringify({
           customerId,
+          customerPhone: trimmedPhone,
           deviceType: trimmedDeviceType,
           brand: brand.trim() || undefined,
           model: model.trim() || undefined,
           issueDescription: trimmedIssue,
           serviceAddress: serviceAddress.trim() || undefined,
           preferredTime: preferredTime.trim() || undefined,
-          images: photoNote.trim() ? [photoNote.trim()] : [],
+          images: selectedPhoto ? [selectedPhoto.dataUrl] : [],
           serviceFee: 0,
           status: 'submitted',
           paymentStatus: 'pending',
@@ -88,6 +108,81 @@ export default function CustomerNewRequestScreen() {
       setError(submitError instanceof Error ? submitError.message : 'Unable to submit your repair request.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function selectPhotoFromLibrary() {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.6,
+        base64: true,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      attachPhoto(asset.uri, asset.base64, asset.mimeType);
+    } catch (photoError) {
+      setError(photoError instanceof Error ? photoError.message : 'Unable to select a photo.');
+    }
+  }
+
+  function attachPhoto(uri: string, base64: string | null | undefined, mimeType?: string | null) {
+    if (!base64) {
+      setError('The photo could not be prepared. Please try another photo.');
+      return;
+    }
+    if (base64.length > MAX_PHOTO_BASE64_LENGTH) {
+      setError('Choose a smaller photo. The attachment must be under 4 MB.');
+      return;
+    }
+
+    const normalizedMimeType = mimeType?.toLowerCase() ?? 'image/jpeg';
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(normalizedMimeType)) {
+      setError('Choose a JPEG, PNG, or WebP photo.');
+      return;
+    }
+
+    setSelectedPhoto({ uri, dataUrl: `data:${normalizedMimeType};base64,${base64}` });
+    setError('');
+  }
+
+  async function openCamera() {
+    setError('');
+    try {
+      if (!cameraPermission?.granted) {
+        const permission = await requestCameraPermission();
+        if (!permission.granted) {
+          setError('Allow camera access to take a photo, or choose one from your photo library.');
+          return;
+        }
+      }
+      setCameraReady(false);
+      setCameraModalVisible(true);
+    } catch (permissionError) {
+      setError(permissionError instanceof Error ? permissionError.message : 'Unable to request camera permission.');
+    }
+  }
+
+  async function capturePhoto() {
+    if (!cameraReady || !cameraRef.current || takingPhoto) return;
+
+    setTakingPhoto(true);
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, base64: true });
+      if (!photo) {
+        setError('The camera did not return a photo. Please try again.');
+        return;
+      }
+      attachPhoto(photo.uri, photo.base64, 'image/jpeg');
+      setCameraModalVisible(false);
+    } catch (photoError) {
+      setError(photoError instanceof Error ? photoError.message : 'Unable to take a photo.');
+    } finally {
+      setTakingPhoto(false);
     }
   }
 
@@ -208,6 +303,21 @@ export default function CustomerNewRequestScreen() {
                     className="min-h-[110px] rounded-xl border border-[#263955] bg-[#101F3D] px-4 py-3 text-white"
                   />
 
+                  <Text className="mb-2 mt-4 text-sm font-semibold text-white">Your phone number *</Text>
+                  <TextInput
+                    value={customerPhone}
+                    onChangeText={(value) => {
+                      setCustomerPhone(value);
+                      setError('');
+                    }}
+                    placeholder="Phone number we can reach you on"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="phone-pad"
+                    autoComplete="tel"
+                    className="min-h-12 rounded-xl border border-[#263955] bg-[#101F3D] px-4 py-3 text-white"
+                    returnKeyType="next"
+                  />
+
                   <Text className="mb-2 mt-4 text-sm font-semibold text-white">Service details</Text>
                   <TextInput
                     value={serviceAddress}
@@ -219,19 +329,53 @@ export default function CustomerNewRequestScreen() {
                   />
                   <View className="mt-4">
                     <Text className="mb-2 text-sm font-semibold text-white">Preferred service time (optional)</Text>
-                    <SchedulePicker value={preferredTime} onChange={setPreferredTime} optional />
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => setScheduleModalVisible(true)}
+                      className="min-h-12 justify-center rounded-xl border border-[#263955] bg-[#101F3D] px-4 py-3"
+                    >
+                      <Text className={preferredTime ? 'text-sm font-semibold text-white' : 'text-sm text-slate-400'}>
+                        {preferredTime ? formatScheduleTime(preferredTime) : 'Choose date and time (optional)'}
+                      </Text>
+                    </Pressable>
                     <Text className="mt-2 text-xs leading-5 text-slate-400">
                       A technician will confirm this time or decline it so the manager can assign another technician.
                     </Text>
                   </View>
-                  <TextInput
-                    value={photoNote}
-                    onChangeText={setPhotoNote}
-                    placeholder="Photo or file reference (optional)"
-                    placeholderTextColor="#94A3B8"
-                    className="mt-3 min-h-12 rounded-xl border border-[#263955] bg-[#101F3D] px-4 py-3 text-white"
-                    returnKeyType="done"
-                  />
+                  <View className="mt-4">
+                    <Text className="mb-1 text-sm font-semibold text-white">Add a photo (optional)</Text>
+                    <Text className="mb-3 text-xs text-slate-400">A photo can help the technician understand the problem.</Text>
+                    <View className="flex-row gap-2">
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void selectPhotoFromLibrary()}
+                        className="min-h-11 flex-1 justify-center rounded-xl border border-[#263955] bg-[#101F3D] px-3"
+                      >
+                        <Text className="text-center text-xs font-semibold text-slate-200">Choose photo</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void openCamera()}
+                        className="min-h-11 flex-1 justify-center rounded-xl border border-[#263955] bg-[#101F3D] px-3"
+                      >
+                        <Text className="text-center text-xs font-semibold text-slate-200">Take photo</Text>
+                      </Pressable>
+                    </View>
+                    {selectedPhoto ? (
+                      <View className="mt-3 flex-row items-center gap-3 rounded-xl border border-[#263955] bg-[#101F3D] p-2">
+                        <Image source={{ uri: selectedPhoto.uri }} className="h-16 w-16 rounded-lg" resizeMode="cover" />
+                        <Text className="flex-1 text-xs text-emerald-200">Photo attached</Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove attached photo"
+                          onPress={() => setSelectedPhoto(null)}
+                          className="rounded-lg px-3 py-2"
+                        >
+                          <Text className="text-xs font-semibold text-rose-300">Remove</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
 
                 {error ? (
@@ -257,6 +401,72 @@ export default function CustomerNewRequestScreen() {
             )}
           </ScrollView>
         </KeyboardAvoidingView>
+        <Modal
+          visible={cameraModalVisible}
+          animationType="slide"
+          onRequestClose={() => setCameraModalVisible(false)}
+          statusBarTranslucent
+        >
+          <View className="flex-1 bg-black">
+            <CameraView
+              ref={cameraRef}
+              style={{ flex: 1 }}
+              facing="back"
+              mode="picture"
+              onCameraReady={() => setCameraReady(true)}
+            />
+            <View className="absolute inset-0 justify-between px-5 py-8">
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setCameraModalVisible(false)}
+                className="self-start rounded-full bg-black/60 px-4 py-3"
+              >
+                <Text className="text-sm font-semibold text-white">Cancel</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Capture photo"
+                disabled={!cameraReady || takingPhoto}
+                onPress={() => void capturePhoto()}
+                className="h-16 w-16 self-center items-center justify-center rounded-full border-4 border-white bg-white/30"
+                style={{ opacity: cameraReady && !takingPhoto ? 1 : 0.5 }}
+              >
+                <View className="h-10 w-10 rounded-full bg-white" />
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+        <Modal
+          visible={scheduleModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setScheduleModalVisible(false)}
+        >
+          <View className="flex-1 justify-center bg-black/70 px-4 py-6">
+            <View className="w-full self-center rounded-[24px] border border-[#263955] bg-[#0D1B38] p-4" style={{ maxWidth: 430, maxHeight: '90%' }}>
+              <Text className="mb-3 text-lg font-bold text-white">Choose preferred service time</Text>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                <SchedulePicker value={preferredTime} onChange={setPreferredTime} optional />
+              </ScrollView>
+              <View className="mt-4 flex-row gap-3">
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setScheduleModalVisible(false)}
+                  className="min-h-12 flex-1 justify-center rounded-xl border border-[#263955] px-3"
+                >
+                  <Text className="text-center text-sm font-semibold text-slate-200">Cancel</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setScheduleModalVisible(false)}
+                  className="min-h-12 flex-1 justify-center rounded-xl bg-[#1677FF] px-3"
+                >
+                  <Text className="text-center text-sm font-bold text-white">Done</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </View>
   );

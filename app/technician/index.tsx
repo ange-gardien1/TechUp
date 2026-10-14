@@ -1,13 +1,11 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
 import { formatScheduleTime, SchedulePicker } from '../../src/components/SchedulePicker';
 import { useMemo, useState } from 'react';
 import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
-
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://127.0.0.1:4000');
+import { apiRequest } from '../../src/lib/api';
+import { isActiveTechnicianJob } from '../../src/lib/repairWorkflow';
 
 type TechnicianDashboard = {
   assignedCount: number;
@@ -26,8 +24,6 @@ type TechnicianDashboard = {
   }>;
 };
 
-const ARCHIVE_STATUSES = new Set(['closed', 'cancelled', 'rejected']);
-
 export default function TechnicianScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -42,9 +38,7 @@ export default function TechnicianScreen() {
     if (!user?.id) return;
     try {
       if (!dashboard) setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/technician/dashboard/${user.id}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to load technician dashboard');
+      const data = await apiRequest<TechnicianDashboard>(`/technician/dashboard/${user.id}`);
       setDashboard(data);
       setError(null);
     } catch (error) {
@@ -56,23 +50,23 @@ export default function TechnicianScreen() {
 
   useLiveRefresh(loadDashboard, user?.role === 'technician');
 
-  const technicianStats = useMemo(
-    () => [
-      { label: 'Assigned jobs', value: String(dashboard?.assignedCount ?? 0), tone: '#10B981' },
-      { label: 'Active jobs', value: String(dashboard?.activeJobs ?? 0), tone: '#22C55E' },
-      { label: 'Quotes pending', value: String(dashboard?.quotePending ?? 0), tone: '#F59E0B' },
-    ],
-    [dashboard],
-  );
-
   const activeJobs = useMemo(
-    () => (dashboard?.requests ?? []).filter((job) => !ARCHIVE_STATUSES.has(String(job.status ?? '').toLowerCase())),
+    () => (dashboard?.requests ?? []).filter((job) => isActiveTechnicianJob(job.status)),
     [dashboard?.requests],
   );
 
   const archiveJobs = useMemo(
-    () => (dashboard?.requests ?? []).filter((job) => ARCHIVE_STATUSES.has(String(job.status ?? '').toLowerCase())),
+    () => (dashboard?.requests ?? []).filter((job) => !isActiveTechnicianJob(job.status)),
     [dashboard?.requests],
+  );
+
+  const technicianStats = useMemo(
+    () => [
+      { label: 'Assigned jobs', value: String(dashboard?.assignedCount ?? 0), tone: '#10B981' },
+      { label: 'Active jobs', value: String(activeJobs.length), tone: '#22C55E' },
+      { label: 'Quotes pending', value: String(dashboard?.quotePending ?? 0), tone: '#F59E0B' },
+    ],
+    [activeJobs.length, dashboard?.assignedCount, dashboard?.quotePending],
   );
 
   async function handleSendSchedule(requestId: number) {
@@ -83,17 +77,14 @@ export default function TechnicianScreen() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/schedule`, {
+      await apiRequest(`/repair-requests/${requestId}/schedule`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user?.id,
           preferredTime: scheduleTime,
           note: 'The assigned technician confirmed this time with the customer.',
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to send schedule');
       setScheduleByRequest((previous) => ({ ...previous, [requestId]: '' }));
       setError(null);
       await loadDashboard();
@@ -105,13 +96,10 @@ export default function TechnicianScreen() {
   async function handleCustomerTimeDecision(requestId: number, decision: 'accept' | 'reject') {
     setScheduleDecisionByRequest((previous) => ({ ...previous, [requestId]: true }));
     try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/schedule/decision`, {
+      await apiRequest(`/repair-requests/${requestId}/schedule/decision`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user?.id, decision }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to update the customer time request');
       setError(null);
       await loadDashboard();
     } catch (error) {
@@ -129,13 +117,10 @@ export default function TechnicianScreen() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/diagnosis`, {
+      await apiRequest(`/repair-requests/${requestId}/diagnosis`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user?.id, diagnosis, note: diagnosis }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to send diagnosis update');
       setError(null);
       await loadDashboard();
     } catch (error) {
@@ -151,13 +136,10 @@ export default function TechnicianScreen() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/complete`, {
+      await apiRequest(`/repair-requests/${requestId}/complete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user?.id, notes: completionNote }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to complete repair');
       setDiagnosisByRequest((previous) => ({ ...previous, [requestId]: '' }));
       setError(null);
       await loadDashboard();
@@ -188,9 +170,9 @@ export default function TechnicianScreen() {
               <View className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5">
                 <Text className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200">Technician</Text>
               </View>
-              <Pressable onPress={handleLogout} className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5">
+              {/* <Pressable onPress={handleLogout} className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5">
                 <Text className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-200">Logout</Text>
-              </Pressable>
+              </Pressable> */}
             </View>
           </View>
 

@@ -1,5 +1,5 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
 import {
   AlertTriangle,
   BadgeCheck,
@@ -15,12 +15,12 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { useAuth } from '../../src/providers/AuthProvider';
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
-
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://127.0.0.1:4000');
+import { apiRequest } from '../../src/lib/api';
+import PerformanceDashboard, { type DashboardLoadDiagnostics } from '../../src/components/admin/PerformanceDashboard';
+import { useWindowDimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type ReviewQueueItem = {
   id: number;
@@ -54,19 +54,65 @@ type AdminDashboard = {
   reviewQueue: ReviewQueueItem[];
 };
 
-const adminActions = [
-  { label: 'Review service requests', icon: ShieldCheck },
-  { label: 'Manage technician assignments', icon: Wrench },
-  { label: 'Monitor payments and revenue', icon: CircleDollarSign },
-  { label: 'Resolve disputes and escalations', icon: AlertTriangle },
-];
+const DIAGNOSTICS_STORAGE_KEY = 'admin-dashboard-load-diagnostics';
+const PERFORMANCE_HISTORY_STORAGE_KEY = 'admin-dashboard-performance-history';
+const MAX_PERFORMANCE_SAMPLES = 30;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isDashboardLoadDiagnostics(value: unknown): value is DashboardLoadDiagnostics {
+  if (!isRecord(value) || !isRecord(value.serverTiming)) return false;
+  const numericFields = [
+    'totalMs',
+    'fetchMs',
+    'bodyMs',
+    'parseMs',
+    'responseDownloadMs',
+    'jsonParsingMs',
+    'status',
+  ];
+  const nullableNumericFields = [
+    'dnsLookupMs',
+    'connectionMs',
+    'tlsHandshakeMs',
+    'ttfbMs',
+    'backendTotalMs',
+    'databaseQueryMs',
+    'externalServiceMs',
+    'responseBytes',
+    'apiUptimeSeconds',
+    'uiRenderingMs',
+  ];
+
+  return numericFields.every((field) => typeof value[field] === 'number')
+    && nullableNumericFields.every((field) => value[field] === null || typeof value[field] === 'number')
+    && typeof value.measuredAt === 'string'
+    && (value.sampledAt === undefined || typeof value.sampledAt === 'number')
+    && (value.databaseQueryBreakdown === undefined
+      || (isRecord(value.databaseQueryBreakdown)
+        && Object.values(value.databaseQueryBreakdown).every((duration) => typeof duration === 'number')))
+    && (value.eventLoopP99Ms === undefined || value.eventLoopP99Ms === null || typeof value.eventLoopP99Ms === 'number')
+    && (value.ttfbSource === undefined || value.ttfbSource === null || value.ttfbSource === 'resource' || value.ttfbSource === 'fetch')
+    && Object.values(value.serverTiming).every((duration) => typeof duration === 'number');
+}
 
 export default function AdminScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { width } = useWindowDimensions();
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dashboardWaitingTooLong, setDashboardWaitingTooLong] = useState(false);
+  const [activeAdminTab, setActiveAdminTab] = useState<'review' | 'performance' | 'payments' | 'alerts'>('review');
   const [error, setError] = useState<string | null>(null);
+  const [loadDiagnostics, setLoadDiagnostics] = useState<DashboardLoadDiagnostics | null>(null);
+  const [performanceHistory, setPerformanceHistory] = useState<DashboardLoadDiagnostics[]>([]);
+  const [performanceHistoryLoading, setPerformanceHistoryLoading] = useState(true);
+  const performanceHistoryRef = useRef<DashboardLoadDiagnostics[]>([]);
+  const diagnosticsUpdatedRef = useRef(false);
+  const uiRenderStartedAtRef = useRef<number | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [quoteEditorId, setQuoteEditorId] = useState<number | null>(null);
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<Record<number, number>>({});
@@ -79,20 +125,130 @@ export default function AdminScreen() {
     notes: string;
   }>>({});
 
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([
+      AsyncStorage.getItem(DIAGNOSTICS_STORAGE_KEY),
+      AsyncStorage.getItem(PERFORMANCE_HISTORY_STORAGE_KEY),
+    ])
+      .then(([storedDiagnostics, storedHistory]) => {
+        if (!isMounted) return;
+
+        let restoredHistory: DashboardLoadDiagnostics[] = [];
+        if (storedHistory) {
+          const parsedHistory: unknown = JSON.parse(storedHistory);
+          if (Array.isArray(parsedHistory)) {
+            restoredHistory = parsedHistory
+              .filter(isDashboardLoadDiagnostics)
+              .map((sample) => ({
+                ...sample,
+                sampledAt: sample.sampledAt ?? Date.now(),
+                databaseQueryBreakdown: sample.databaseQueryBreakdown ?? {},
+                eventLoopP99Ms: sample.eventLoopP99Ms ?? null,
+              }));
+          } else {
+            console.error('Stored admin performance history has an unexpected format');
+          }
+        }
+
+        if (storedDiagnostics && !diagnosticsUpdatedRef.current) {
+          const parsedDiagnostics: unknown = JSON.parse(storedDiagnostics);
+          if (isDashboardLoadDiagnostics(parsedDiagnostics)) {
+            const restoredDiagnostic = {
+              ...parsedDiagnostics,
+              sampledAt: parsedDiagnostics.sampledAt ?? Date.now(),
+              databaseQueryBreakdown: parsedDiagnostics.databaseQueryBreakdown ?? {},
+              eventLoopP99Ms: parsedDiagnostics.eventLoopP99Ms ?? null,
+            };
+            setLoadDiagnostics(restoredDiagnostic);
+            if (restoredHistory.length === 0) restoredHistory = [restoredDiagnostic];
+          } else {
+            console.error('Stored admin dashboard diagnostics have an unexpected format');
+          }
+        }
+
+        const merged = [...restoredHistory, ...performanceHistoryRef.current]
+          .filter((sample, index, samples) =>
+            samples.findIndex((candidate) => candidate.sampledAt === sample.sampledAt) === index)
+          .sort((first, second) => first.sampledAt - second.sampledAt)
+          .slice(-MAX_PERFORMANCE_SAMPLES);
+        performanceHistoryRef.current = merged;
+        setPerformanceHistory(merged);
+        setPerformanceHistoryLoading(false);
+      })
+      .catch((storageError) => {
+        console.error('Unable to restore admin dashboard diagnostics', storageError);
+        if (isMounted) setPerformanceHistoryLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!dashboard || uiRenderStartedAtRef.current === null) return;
+    const renderedAt = typeof globalThis.performance?.now === 'function'
+      ? globalThis.performance.now()
+      : Date.now();
+    const uiRenderingMs = renderedAt - uiRenderStartedAtRef.current;
+    uiRenderStartedAtRef.current = null;
+    setLoadDiagnostics((previous) => {
+      if (!previous) return previous;
+      const updated = { ...previous, uiRenderingMs };
+      AsyncStorage.setItem(DIAGNOSTICS_STORAGE_KEY, JSON.stringify(updated))
+        .catch((storageError) => console.error('Unable to save admin dashboard diagnostics', storageError));
+      const updatedHistory = performanceHistoryRef.current.map((sample) =>
+        sample.sampledAt === updated.sampledAt ? updated : sample,
+      );
+      performanceHistoryRef.current = updatedHistory;
+      setPerformanceHistory(updatedHistory);
+      AsyncStorage.setItem(PERFORMANCE_HISTORY_STORAGE_KEY, JSON.stringify(updatedHistory))
+        .catch((storageError) => console.error('Unable to save admin performance history', storageError));
+      return updated;
+    });
+  }, [dashboard]);
+
   async function loadDashboard() {
+    let slowLoadTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       if (!dashboard) setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/admin/dashboard?userId=${user?.id}`);
-      if (!response.ok) {
-        throw new Error('Unable to load dashboard');
-      }
-
-      const data = (await response.json()) as AdminDashboard;
+      setDashboardWaitingTooLong(false);
+      slowLoadTimer = setTimeout(() => setDashboardWaitingTooLong(true), 2_500);
+      const data = await apiRequest<AdminDashboard>(
+        `/admin/dashboard?userId=${user?.id}`,
+        {},
+        (metrics) => {
+          diagnosticsUpdatedRef.current = true;
+          const updated: DashboardLoadDiagnostics = {
+            ...metrics,
+            sampledAt: Date.now(),
+            uiRenderingMs: null,
+            measuredAt: new Date().toLocaleTimeString(),
+          };
+          setLoadDiagnostics(updated);
+          const nextHistory = [
+            ...performanceHistoryRef.current.filter((sample) => sample.sampledAt !== updated.sampledAt),
+            updated,
+          ].slice(-MAX_PERFORMANCE_SAMPLES);
+          performanceHistoryRef.current = nextHistory;
+          setPerformanceHistory(nextHistory);
+          AsyncStorage.setItem(PERFORMANCE_HISTORY_STORAGE_KEY, JSON.stringify(nextHistory))
+            .catch((storageError) => console.error('Unable to save admin performance history', storageError));
+          AsyncStorage.setItem(DIAGNOSTICS_STORAGE_KEY, JSON.stringify(updated))
+            .catch((storageError) => console.error('Unable to save admin dashboard diagnostics', storageError));
+        },
+      );
+      uiRenderStartedAtRef.current = typeof globalThis.performance?.now === 'function'
+        ? globalThis.performance.now()
+        : Date.now();
       setDashboard(data);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Dashboard error');
     } finally {
+      if (slowLoadTimer) clearTimeout(slowLoadTimer);
+      setDashboardWaitingTooLong(false);
       setLoading(false);
     }
   }
@@ -102,17 +258,10 @@ export default function AdminScreen() {
   async function handleReviewRequest(requestId: number) {
     try {
       setActionMessage(null);
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/review`, {
+      await apiRequest(`/repair-requests/${requestId}/review`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user?.id }),
       });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error ?? 'Unable to update request');
-      }
-
       setActionMessage(`Request #${requestId} sent to a manager for review.`);
       await loadDashboard();
     } catch (err) {
@@ -158,9 +307,8 @@ export default function AdminScreen() {
 
     try {
       const totalDue = Number(draft.laborCost ?? 0) + Number(draft.partsCost ?? 0);
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/quotes`, {
+      await apiRequest(`/repair-requests/${requestId}/quotes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user?.id,
           technicianId: selectedTechnicianId[requestId] ?? dashboard?.technicians?.[0]?.id ?? 0,
@@ -179,8 +327,6 @@ export default function AdminScreen() {
           ].join(' | '),
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to send quotation');
       setQuoteEditorId(null);
       setActionMessage(`Quotation sent to customer for request #${requestId}.`);
       await loadDashboard();
@@ -192,13 +338,10 @@ export default function AdminScreen() {
   async function handleRejectIncomplete(requestId: number) {
     setActionMessage(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/repair-requests/${requestId}/reject-incomplete`, {
+      await apiRequest(`/repair-requests/${requestId}/reject-incomplete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Customer information is missing or incomplete for this request.' }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? 'Unable to reject request');
       setActionMessage(`Request #${requestId} was rejected because the customer data is incomplete.`);
       await loadDashboard();
     } catch (error) {
@@ -240,8 +383,40 @@ export default function AdminScreen() {
           </Text>
         </View>
 
+        <View className="flex-row flex-wrap gap-2 px-5 pt-4">
+          {[
+            { id: 'review' as const, label: 'Review queue', icon: Eye, badge: dashboard?.reviewQueue.length ?? 0 },
+            { id: 'performance' as const, label: 'App performance', icon: Gauge, badge: null },
+            { id: 'payments' as const, label: 'Payments', icon: CircleDollarSign, badge: null },
+            { id: 'alerts' as const, label: 'Alerts', icon: AlertTriangle, badge: dashboard?.pendingDisputes ?? 0 },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeAdminTab === tab.id;
+            return (
+              <Pressable
+                key={tab.id}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                onPress={() => setActiveAdminTab(tab.id)}
+                className={`min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl border px-3 ${isActive ? 'border-cyan-400 bg-cyan-400/15' : 'border-slate-700 bg-[#111827]'}`}
+                style={{ minWidth: '46%' }}
+              >
+                <Icon size={15} color={isActive ? '#67e8f9' : '#94a3b8'} />
+                <Text className={`text-xs font-bold ${isActive ? 'text-cyan-100' : 'text-slate-300'}`}>{tab.label}</Text>
+                {tab.badge !== null && tab.badge > 0 ? (
+                  <Text className="rounded-full bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-bold text-rose-200">{tab.badge}</Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+
         <View className="px-5 pt-6">
-          <Text className="mb-4 text-lg font-bold text-white">Platform overview</Text>
+          <Text className="mb-4 text-lg font-bold text-white">
+            {activeAdminTab === 'review' ? 'Review queue overview' : activeAdminTab === 'performance' ? 'App performance' : activeAdminTab === 'payments' ? 'Payment monitoring' : 'Alerts'}
+          </Text>
+          {activeAdminTab === 'review' ? (
+            <>
           {loading ? (
             <View className="rounded-[20px] border border-slate-700 bg-[#111827] p-6">
               <ActivityIndicator color="#67e8f9" />
@@ -257,7 +432,6 @@ export default function AdminScreen() {
                 { label: 'Total users', value: dashboard.userCount, tint: 'text-violet-300', bg: 'bg-violet-500/10', icon: Users },
                 { label: 'Repair requests', value: dashboard.repairCount, tint: 'text-cyan-300', bg: 'bg-cyan-500/10', icon: Wrench },
                 { label: 'Open requests', value: dashboard.openRequests, tint: 'text-emerald-300', bg: 'bg-emerald-500/10', icon: Gauge },
-                { label: 'Revenue', value: `$${dashboard.totalRevenue.toFixed(2)}`, tint: 'text-amber-300', bg: 'bg-amber-500/10', icon: CircleDollarSign },
               ].map((stat) => {
                 const Icon = stat.icon;
                 return (
@@ -272,9 +446,23 @@ export default function AdminScreen() {
               })}
             </View>
           ) : null}
+            </>
+          ) : null}
+
+          {activeAdminTab === 'performance' ? (
+            <PerformanceDashboard
+              samples={performanceHistory}
+              latest={loadDiagnostics ?? performanceHistory[performanceHistory.length - 1] ?? null}
+              loading={loading}
+              historyLoading={performanceHistoryLoading}
+              error={error}
+              waitingTooLong={dashboardWaitingTooLong}
+              width={width}
+            />
+          ) : null}
         </View>
 
-        {dashboard ? (
+        {dashboard && activeAdminTab === 'review' ? (
           <>
             <View className="mt-6 px-5">
               <Text className="mb-4 text-lg font-bold text-white">Workforce overview</Text>
@@ -515,22 +703,99 @@ export default function AdminScreen() {
           </>
         ) : null}
 
-        <View className="mt-6 px-5">
-          <Text className="mb-4 text-lg font-bold text-white">Operational focus</Text>
-              <View className="rounded-[24px] border border-slate-700 bg-[#111827] p-4">
-            {adminActions.map((item) => {
-              const Icon = item.icon;
-              return (
-                <View key={item.label} className="mb-3 flex-row items-center rounded-xl bg-[#0F172A] p-3 last:mb-0">
-                  <View className="mr-3 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/10">
-                    <Icon size={16} color="#c4b5fd" />
+        {activeAdminTab === 'payments' ? (
+          <View className="mt-6 px-5">
+            <Text className="mb-4 text-lg font-bold text-white">Monitor payments</Text>
+            {dashboard ? (
+              <View className="rounded-2xl border border-amber-700/50 bg-[#111827] p-5">
+                <View className="flex-row items-center gap-3">
+                  <View className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/10">
+                    <CircleDollarSign size={20} color="#fcd34d" />
                   </View>
-                  <Text className="flex-1 text-sm leading-6 text-slate-300">{item.label}</Text>
+                  <View className="flex-1">
+                    <Text className="text-xs font-bold uppercase tracking-[0.18em] text-amber-200">Total recorded payments</Text>
+                    <Text className="mt-1 text-2xl font-black text-white">${dashboard.totalRevenue.toFixed(2)}</Text>
+                  </View>
                 </View>
-              );
-            })}
+                <Text className="mt-4 text-xs leading-5 text-slate-400">
+                  This is the aggregate payment total currently provided by the admin dashboard. Individual transaction history and payment statuses are not part of this dashboard response yet.
+                </Text>
+              </View>
+            ) : (
+              <View className="rounded-2xl border border-slate-700 bg-[#111827] p-5">
+                <Text className="text-sm text-slate-300">{loading ? 'Loading payment summary…' : error ?? 'Payment summary is unavailable.'}</Text>
+              </View>
+            )}
           </View>
-        </View>
+        ) : null}
+
+        {activeAdminTab === 'alerts' ? (
+          <View className="mt-6 px-5">
+            <Text className="mb-4 text-lg font-bold text-white">System alerts</Text>
+            <View className="gap-3">
+              {dashboard && dashboard.pendingDisputes > 0 ? (
+                <View className="flex-row items-start gap-3 rounded-2xl border border-rose-700/50 bg-rose-500/10 p-4">
+                  <AlertTriangle size={18} color="#fda4af" />
+                  <View className="flex-1">
+                    <Text className="text-sm font-bold text-rose-200">{dashboard.pendingDisputes} pending dispute{dashboard.pendingDisputes === 1 ? '' : 's'}</Text>
+                    <Text className="mt-1 text-xs leading-5 text-slate-300">Disputes need admin attention.</Text>
+                  </View>
+                </View>
+              ) : dashboard ? (
+                <View className="flex-row items-start gap-3 rounded-2xl border border-emerald-700/50 bg-emerald-500/10 p-4">
+                  <CheckCircle2 size={18} color="#6ee7b7" />
+                  <View className="flex-1">
+                    <Text className="text-sm font-bold text-emerald-200">No pending disputes</Text>
+                    <Text className="mt-1 text-xs leading-5 text-slate-300">There are no disputes awaiting admin attention.</Text>
+                  </View>
+                </View>
+              ) : null}
+              {dashboard && dashboard.reviewQueue.length > 0 ? (
+                <Pressable
+                  onPress={() => setActiveAdminTab('review')}
+                  className="flex-row items-start gap-3 rounded-2xl border border-amber-700/50 bg-amber-500/10 p-4"
+                >
+                  <Eye size={18} color="#fcd34d" />
+                  <View className="flex-1">
+                    <Text className="text-sm font-bold text-amber-200">{dashboard.reviewQueue.length} request{dashboard.reviewQueue.length === 1 ? '' : 's'} in the review queue</Text>
+                    <Text className="mt-1 text-xs leading-5 text-slate-300">Tap to open the review queue.</Text>
+                  </View>
+                </Pressable>
+              ) : null}
+              {loadDiagnostics && (loadDiagnostics.status === 0 || loadDiagnostics.status >= 400 || loadDiagnostics.totalMs >= 2_500) ? (
+                <Pressable
+                  onPress={() => setActiveAdminTab('performance')}
+                  className="flex-row items-start gap-3 rounded-2xl border border-amber-700/50 bg-amber-500/10 p-4"
+                >
+                  <Gauge size={18} color="#fcd34d" />
+                  <View className="flex-1">
+                    <Text className="text-sm font-bold text-amber-200">Dashboard performance issue detected</Text>
+                    <Text className="mt-1 text-xs leading-5 text-slate-300">Tap to inspect the latest measured timings and likely cause.</Text>
+                  </View>
+                </Pressable>
+              ) : loadDiagnostics ? (
+                <View className="flex-row items-start gap-3 rounded-2xl border border-emerald-700/50 bg-emerald-500/10 p-4">
+                  <CheckCircle2 size={18} color="#6ee7b7" />
+                  <View className="flex-1">
+                    <Text className="text-sm font-bold text-emerald-200">No slow dashboard load detected</Text>
+                    <Text className="mt-1 text-xs leading-5 text-slate-300">Latest measured load completed in {(loadDiagnostics.totalMs / 1000).toFixed(2)} seconds.</Text>
+                  </View>
+                </View>
+              ) : null}
+              {!dashboard && loading ? (
+                <View className="rounded-2xl border border-slate-700 bg-[#111827] p-4">
+                  <ActivityIndicator color="#67e8f9" />
+                  <Text className="mt-3 text-center text-sm text-slate-300">Loading alerts…</Text>
+                </View>
+              ) : null}
+              {!dashboard && error ? (
+                <View className="rounded-2xl border border-rose-800 bg-[#1f1220] p-4">
+                  <Text className="text-sm text-rose-300">{error}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
