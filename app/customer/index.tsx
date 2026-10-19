@@ -171,6 +171,7 @@ export default function CustomerScreen() {
           .filter((request) =>
             request.customerId === customerId &&
             String(request.status ?? '').toLowerCase() !== 'closed' &&
+            !['cancelled', 'canceled'].includes(String(request.status ?? '').trim().toLowerCase()) &&
             !ratedRequestIdSet.has(request.id),
           )
           .sort((a, b) => Number(b.id) - Number(a.id));
@@ -245,14 +246,11 @@ export default function CustomerScreen() {
         }),
       });
 
-      setRepairs((previous) =>
-        previous.map((request) =>
-          request.id === cancelConfirmRequestId
-            ? { ...request, status: 'cancelled', paymentStatus: 'cancelled' }
-            : request,
-        ),
+      const remainingRepairs = repairs.filter((request) => request.id !== cancelConfirmRequestId);
+      setRepairs(remainingRepairs);
+      setSelectedRequestId((previous) =>
+        previous === cancelConfirmRequestId ? remainingRepairs[0]?.id ?? null : previous,
       );
-      setSelectedRequestId(cancelConfirmRequestId);
       setCancelConfirmRequestId(null);
       setError(null);
     } catch (err) {

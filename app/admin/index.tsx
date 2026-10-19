@@ -1,26 +1,28 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from '../../src/components/ThemedNative';
 import {
   AlertTriangle,
   BadgeCheck,
-  CheckCircle2,
+  ChevronRight,
   CircleDollarSign,
   Eye,
-  FileText,
   Gauge,
   ShieldCheck,
-  UserRoundCog,
   Users,
   Wrench,
-  XCircle,
 } from 'lucide-react-native';
 import { useAuth } from '../../src/providers/AuthProvider';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLiveRefresh } from '../../src/lib/useLiveRefresh';
 import { apiRequest } from '../../src/lib/api';
-import PerformanceDashboard, { type DashboardLoadDiagnostics } from '../../src/components/admin/PerformanceDashboard';
-import { useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useWindowDimensions } from 'react-native';
+import PerformanceDashboard, { type DashboardLoadDiagnostics } from '../../src/components/admin/PerformanceDashboard';
+import AdminRequestDetailsModal, {
+  type AdminQuoteDraft,
+  type AdminRequest,
+  type AdminTechnician,
+} from '../../src/components/admin/AdminRequestDetailsModal';
 
 type ReviewQueueItem = {
   id: number;
@@ -30,12 +32,6 @@ type ReviewQueueItem = {
   status: string;
   createdAt: string | null;
   amount: number;
-};
-
-type AdminTechnician = {
-  id: number;
-  fullName: string;
-  email: string;
 };
 
 type AdminDashboard = {
@@ -51,12 +47,38 @@ type AdminDashboard = {
   totalRevenue: number;
   pendingDisputes: number;
   technicians: AdminTechnician[];
-  reviewQueue: ReviewQueueItem[];
+  requests?: AdminRequest[];
+  reviewQueue?: (AdminRequest | ReviewQueueItem)[];
 };
+
+function normalizeAdminRequest(request: AdminRequest | ReviewQueueItem): AdminRequest {
+  return {
+    ...request,
+    customerPhone: 'customerPhone' in request ? request.customerPhone ?? null : null,
+    brand: 'brand' in request ? request.brand ?? null : null,
+    model: 'model' in request ? request.model ?? null : null,
+    serviceAddress: 'serviceAddress' in request ? request.serviceAddress ?? null : null,
+    preferredTime: 'preferredTime' in request ? request.preferredTime ?? null : null,
+    paymentStatus: 'paymentStatus' in request ? request.paymentStatus ?? 'unknown' : 'unknown',
+    technicianId: 'technicianId' in request ? request.technicianId ?? null : null,
+    updatedAt: 'updatedAt' in request ? request.updatedAt ?? null : null,
+    completedAt: 'completedAt' in request ? request.completedAt ?? null : null,
+    quoteAmount: 'quoteAmount' in request ? request.quoteAmount ?? null : null,
+  };
+}
 
 const DIAGNOSTICS_STORAGE_KEY = 'admin-dashboard-load-diagnostics';
 const PERFORMANCE_HISTORY_STORAGE_KEY = 'admin-dashboard-performance-history';
 const MAX_PERFORMANCE_SAMPLES = 30;
+const IN_PROGRESS_STATUSES = new Set([
+  'technician_assigned',
+  'assigned',
+  'scheduled',
+  'customer_approval',
+  'repair_in_progress',
+  'in_progress',
+]);
+const COMPLETED_STATUSES = new Set(['completed', 'closed']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -94,9 +116,84 @@ function isDashboardLoadDiagnostics(value: unknown): value is DashboardLoadDiagn
       || (isRecord(value.databaseQueryBreakdown)
         && Object.values(value.databaseQueryBreakdown).every((duration) => typeof duration === 'number')))
     && (value.eventLoopP99Ms === undefined || value.eventLoopP99Ms === null || typeof value.eventLoopP99Ms === 'number')
-    && (value.ttfbSource === undefined || value.ttfbSource === null || value.ttfbSource === 'resource' || value.ttfbSource === 'fetch')
     && Object.values(value.serverTiming).every((duration) => typeof duration === 'number');
 }
+
+function formatMilliseconds(milliseconds: number | null) {
+  return milliseconds === null ? 'Not available' : `${Math.round(milliseconds)} ms`;
+}
+
+function getDashboardLoadAssessment(metrics: DashboardLoadDiagnostics) {
+  const serverMs = metrics.backendTotalMs ?? undefined;
+  const databaseMs = metrics.databaseQueryMs ?? 0;
+  const outsideServerMs = serverMs === undefined ? null : Math.max(0, metrics.totalMs - serverMs);
+  const likelyCauses: string[] = [];
+
+  if (metrics.status === 0) {
+    return {
+      serverMs,
+      databaseMs,
+      outsideServerMs,
+      likelyCauses: ['No HTTP response was received. A slow or unavailable internet connection, an unreachable API, or a stopped server may be responsible.'],
+    };
+  }
+  if (metrics.status >= 400) {
+    return {
+      serverMs,
+      databaseMs,
+      outsideServerMs,
+      likelyCauses: [`The API returned HTTP ${metrics.status}; this is a server-side request failure, not a slow successful load. Check the API/server logs for the cause.`],
+    };
+  }
+
+  if (databaseMs >= 800 && (serverMs === undefined || databaseMs >= serverMs * 0.5)) {
+    likelyCauses.push(`Database work took ${Math.round(databaseMs)} ms; slow connection or queries are likely contributing.`);
+  }
+  if (metrics.apiUptimeSeconds !== null && metrics.apiUptimeSeconds < 45 && (serverMs ?? 0) >= 800) {
+    likelyCauses.push('The API process recently started; startup or database warm-up may be contributing.');
+  }
+  if (metrics.responseBytes !== null && metrics.responseBytes >= 750_000) {
+    likelyCauses.push(`The response was large (${(metrics.responseBytes / 1_000_000).toFixed(2)} MB), increasing transfer and parsing time.`);
+  }
+  if (metrics.parseMs >= 200) {
+    likelyCauses.push(`JSON parsing took ${Math.round(metrics.parseMs)} ms; large data or client-side parsing may be contributing.`);
+  }
+  if (metrics.uiRenderingMs !== null && metrics.uiRenderingMs >= 500) {
+    likelyCauses.push(`The dashboard UI render/commit took ${Math.round(metrics.uiRenderingMs)} ms; frontend rendering may be contributing.`);
+  }
+  if (metrics.eventLoopP99Ms !== null && metrics.eventLoopP99Ms >= 50) {
+    likelyCauses.push(`The API event-loop p99 delay was ${Math.round(metrics.eventLoopP99Ms)} ms in the recent monitoring window; server CPU pressure or blocking work may be contributing.`);
+  }
+  const slowestDatabaseQuery = Object.entries(metrics.databaseQueryBreakdown)
+    .sort(([, firstDuration], [, secondDuration]) => secondDuration - firstDuration)[0];
+  if (slowestDatabaseQuery && slowestDatabaseQuery[1] >= 500) {
+    likelyCauses.push(`The slowest measured database round trip was "${slowestDatabaseQuery[0]}" at ${Math.round(slowestDatabaseQuery[1])} ms, including database connection queue time.`);
+  }
+  if (metrics.ttfbMs !== null && serverMs !== undefined && metrics.ttfbMs - serverMs >= 800) {
+    likelyCauses.push(`Time before the first response byte exceeded measured backend processing by ${Math.round(metrics.ttfbMs - serverMs)} ms; request travel, proxy, or server queueing is likely contributing.`);
+  }
+  if (metrics.responseDownloadMs >= 800) {
+    likelyCauses.push(`Receiving the response body took ${Math.round(metrics.responseDownloadMs)} ms; connection throughput or payload size may be contributing.`);
+  }
+  if (outsideServerMs !== null && outsideServerMs >= 1_000) {
+    likelyCauses.push(`About ${Math.round(outsideServerMs)} ms was outside measured API processing; network latency or server/proxy queueing may be contributing.`);
+  }
+  if ((serverMs ?? 0) >= 1_500 && databaseMs < (serverMs ?? 0) * 0.5) {
+    likelyCauses.push('Server processing was slow beyond measured database work; server load or other backend work may be contributing.');
+  }
+  if (likelyCauses.length === 0) {
+    likelyCauses.push('No clear network, database, payload, API, or UI rendering delay was measured. Timing detail may be limited on this device or connection.');
+  }
+
+  return { serverMs, databaseMs, outsideServerMs, likelyCauses };
+}
+
+const adminActions = [
+  { label: 'Review service requests', icon: ShieldCheck },
+  { label: 'Manage technician assignments', icon: Wrench },
+  { label: 'Monitor payments and revenue', icon: CircleDollarSign },
+  { label: 'Resolve disputes and escalations', icon: AlertTriangle },
+];
 
 export default function AdminScreen() {
   const router = useRouter();
@@ -106,6 +203,8 @@ export default function AdminScreen() {
   const [loading, setLoading] = useState(true);
   const [dashboardWaitingTooLong, setDashboardWaitingTooLong] = useState(false);
   const [activeAdminTab, setActiveAdminTab] = useState<'review' | 'performance' | 'payments' | 'alerts'>('review');
+  const [activeJobTab, setActiveJobTab] = useState<'review' | 'inProgress' | 'completed'>('review');
+  const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadDiagnostics, setLoadDiagnostics] = useState<DashboardLoadDiagnostics | null>(null);
   const [performanceHistory, setPerformanceHistory] = useState<DashboardLoadDiagnostics[]>([]);
@@ -114,16 +213,6 @@ export default function AdminScreen() {
   const diagnosticsUpdatedRef = useRef(false);
   const uiRenderStartedAtRef = useRef<number | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [quoteEditorId, setQuoteEditorId] = useState<number | null>(null);
-  const [selectedTechnicianId, setSelectedTechnicianId] = useState<Record<number, number>>({});
-  const [quoteDrafts, setQuoteDrafts] = useState<Record<number, {
-    summary: string;
-    diagnosis: string;
-    quantity: string;
-    laborCost: string;
-    partsCost: string;
-    notes: string;
-  }>>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -193,21 +282,24 @@ export default function AdminScreen() {
       : Date.now();
     const uiRenderingMs = renderedAt - uiRenderStartedAtRef.current;
     uiRenderStartedAtRef.current = null;
-    setLoadDiagnostics((previous) => {
-      if (!previous) return previous;
-      const updated = { ...previous, uiRenderingMs };
-      AsyncStorage.setItem(DIAGNOSTICS_STORAGE_KEY, JSON.stringify(updated))
-        .catch((storageError) => console.error('Unable to save admin dashboard diagnostics', storageError));
-      const updatedHistory = performanceHistoryRef.current.map((sample) =>
-        sample.sampledAt === updated.sampledAt ? updated : sample,
-      );
-      performanceHistoryRef.current = updatedHistory;
-      setPerformanceHistory(updatedHistory);
-      AsyncStorage.setItem(PERFORMANCE_HISTORY_STORAGE_KEY, JSON.stringify(updatedHistory))
-        .catch((storageError) => console.error('Unable to save admin performance history', storageError));
-      return updated;
+    if (!loadDiagnostics) return;
+    const updated = { ...loadDiagnostics, uiRenderingMs };
+    setLoadDiagnostics(updated);
+    setPerformanceHistory((samples) => {
+      const updatedSamples = samples.map((sample) =>
+        sample.sampledAt === updated.sampledAt ? updated : sample);
+      performanceHistoryRef.current = updatedSamples;
+      return updatedSamples;
     });
-  }, [dashboard]);
+    AsyncStorage.setItem(DIAGNOSTICS_STORAGE_KEY, JSON.stringify(updated))
+      .catch((storageError) => console.error('Unable to save admin dashboard diagnostics', storageError));
+  }, [dashboard, loadDiagnostics]);
+
+  useEffect(() => {
+    if (performanceHistoryLoading) return;
+    AsyncStorage.setItem(PERFORMANCE_HISTORY_STORAGE_KEY, JSON.stringify(performanceHistory))
+      .catch((storageError) => console.error('Unable to persist admin performance history', storageError));
+  }, [performanceHistory, performanceHistoryLoading]);
 
   async function loadDashboard() {
     let slowLoadTimer: ReturnType<typeof setTimeout> | undefined;
@@ -220,29 +312,35 @@ export default function AdminScreen() {
         {},
         (metrics) => {
           diagnosticsUpdatedRef.current = true;
+          uiRenderStartedAtRef.current = metrics.status < 400
+            ? (typeof globalThis.performance?.now === 'function' ? globalThis.performance.now() : Date.now())
+            : null;
           const updated: DashboardLoadDiagnostics = {
             ...metrics,
-            sampledAt: Date.now(),
+            sampledAt: Math.max(
+              Date.now(),
+              (performanceHistoryRef.current[performanceHistoryRef.current.length - 1]?.sampledAt ?? 0) + 1,
+            ),
             uiRenderingMs: null,
             measuredAt: new Date().toLocaleTimeString(),
           };
           setLoadDiagnostics(updated);
-          const nextHistory = [
-            ...performanceHistoryRef.current.filter((sample) => sample.sampledAt !== updated.sampledAt),
-            updated,
-          ].slice(-MAX_PERFORMANCE_SAMPLES);
-          performanceHistoryRef.current = nextHistory;
-          setPerformanceHistory(nextHistory);
-          AsyncStorage.setItem(PERFORMANCE_HISTORY_STORAGE_KEY, JSON.stringify(nextHistory))
-            .catch((storageError) => console.error('Unable to save admin performance history', storageError));
+          const updatedHistory = [...performanceHistoryRef.current, updated].slice(-MAX_PERFORMANCE_SAMPLES);
+          performanceHistoryRef.current = updatedHistory;
+          setPerformanceHistory(updatedHistory);
           AsyncStorage.setItem(DIAGNOSTICS_STORAGE_KEY, JSON.stringify(updated))
             .catch((storageError) => console.error('Unable to save admin dashboard diagnostics', storageError));
         },
       );
-      uiRenderStartedAtRef.current = typeof globalThis.performance?.now === 'function'
-        ? globalThis.performance.now()
-        : Date.now();
-      setDashboard(data);
+      const requests = Array.isArray(data.requests)
+        ? data.requests.map(normalizeAdminRequest)
+        : Array.isArray(data.reviewQueue)
+          ? data.reviewQueue.map(normalizeAdminRequest)
+          : [];
+      const reviewQueue = Array.isArray(data.reviewQueue)
+        ? data.reviewQueue.map(normalizeAdminRequest)
+        : requests.filter((request) => ['submitted', 'under_review', 'schedule_rejected'].includes(request.status.toLowerCase()));
+      setDashboard({ ...data, requests, reviewQueue });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Dashboard error');
@@ -262,6 +360,7 @@ export default function AdminScreen() {
         method: 'POST',
         body: JSON.stringify({ userId: user?.id }),
       });
+      setSelectedRequestId(null);
       setActionMessage(`Request #${requestId} sent to a manager for review.`);
       await loadDashboard();
     } catch (err) {
@@ -269,41 +368,8 @@ export default function AdminScreen() {
     }
   }
 
-  async function handleAssignTechnician(requestId: number) {
+  async function handleSendQuotation(requestId: number, technicianId: number, draft: AdminQuoteDraft) {
     setActionMessage(null);
-    setActionMessage('Repair requests must be reviewed and assigned by a manager. Use the manager dashboard to continue.');
-  }
-
-  function openQuoteTemplate(requestId: number, request: ReviewQueueItem) {
-    const currentStatus = request.status?.toLowerCase() ?? '';
-    if (!['scheduled', 'customer_approval'].includes(currentStatus)) {
-      setActionMessage('This request must be reviewed, assigned, and scheduled before a quotation can be sent.');
-      return;
-    }
-
-    const draft = quoteDrafts[requestId] ?? {
-      summary: `${request.deviceType} service check and repair for ${request.issue.split(' ').slice(0, 8).join(' ')}`,
-      diagnosis: 'Device diagnosis: screen and battery fault found during inspection.',
-      quantity: '1',
-      laborCost: '120',
-      partsCost: '80',
-      notes: 'Customer approval required before work begins. Warranty applies to replacement parts only.',
-    };
-
-    setQuoteDrafts((previous) => ({ ...previous, [requestId]: draft }));
-    setQuoteEditorId(requestId);
-  }
-
-  async function handleSendQuotation(requestId: number) {
-    setActionMessage(null);
-    const draft = quoteDrafts[requestId] ?? {
-      summary: 'General repair service',
-      diagnosis: 'General diagnosis',
-      quantity: '1',
-      laborCost: '0',
-      partsCost: '0',
-      notes: 'Customer approval required before work begins.',
-    };
 
     try {
       const totalDue = Number(draft.laborCost ?? 0) + Number(draft.partsCost ?? 0);
@@ -311,7 +377,7 @@ export default function AdminScreen() {
         method: 'POST',
         body: JSON.stringify({
           userId: user?.id,
-          technicianId: selectedTechnicianId[requestId] ?? dashboard?.technicians?.[0]?.id ?? 0,
+          technicianId,
           laborCost: Number(draft.laborCost ?? 0),
           sparePartsCost: Number(draft.partsCost ?? 0),
           quantity: Number(draft.quantity ?? 1),
@@ -327,7 +393,7 @@ export default function AdminScreen() {
           ].join(' | '),
         }),
       });
-      setQuoteEditorId(null);
+      setSelectedRequestId(null);
       setActionMessage(`Quotation sent to customer for request #${requestId}.`);
       await loadDashboard();
     } catch (error) {
@@ -342,6 +408,7 @@ export default function AdminScreen() {
         method: 'POST',
         body: JSON.stringify({ reason: 'Customer information is missing or incomplete for this request.' }),
       });
+      setSelectedRequestId(null);
       setActionMessage(`Request #${requestId} was rejected because the customer data is incomplete.`);
       await loadDashboard();
     } catch (error) {
@@ -362,6 +429,26 @@ export default function AdminScreen() {
     return <Redirect href={`/${user.role}` as any} />;
   }
 
+  const reviewQueuePayload = dashboard?.reviewQueue ?? [];
+  const requests = dashboard?.requests ?? reviewQueuePayload.map(normalizeAdminRequest);
+  const reviewQueue = reviewQueuePayload.map(normalizeAdminRequest);
+  const activeRequests = activeJobTab === 'review'
+    ? reviewQueue
+    : requests.filter((request) => {
+      const status = request.status.toLowerCase();
+      return activeJobTab === 'inProgress'
+        ? IN_PROGRESS_STATUSES.has(status)
+        : COMPLETED_STATUSES.has(status);
+    });
+  const selectedRequest = requests.find((request) => request.id === selectedRequestId) ?? null;
+  const hasPerformanceAlert = dashboardWaitingTooLong
+    || Boolean(loadDiagnostics && (
+      loadDiagnostics.status === 0
+      || loadDiagnostics.status >= 400
+      || loadDiagnostics.totalMs >= 2_500
+    ));
+  const activeAlertCount = Number(hasPerformanceAlert) + Number((dashboard?.pendingDisputes ?? 0) > 0);
+
   return (
     <View className="flex-1 bg-[#09111F]">
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 36 }}>
@@ -371,9 +458,9 @@ export default function AdminScreen() {
               <View className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5">
                 <Text className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200">Admin</Text>
               </View>
-              <Pressable onPress={handleLogout} className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5">
+              {/* <Pressable onPress={handleLogout} className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5">
                 <Text className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-200">Logout</Text>
-              </Pressable>
+              </Pressable> */}
             </View>
           </View>
 
@@ -383,40 +470,58 @@ export default function AdminScreen() {
           </Text>
         </View>
 
-        <View className="flex-row flex-wrap gap-2 px-5 pt-4">
-          {[
-            { id: 'review' as const, label: 'Review queue', icon: Eye, badge: dashboard?.reviewQueue.length ?? 0 },
-            { id: 'performance' as const, label: 'App performance', icon: Gauge, badge: null },
-            { id: 'payments' as const, label: 'Payments', icon: CircleDollarSign, badge: null },
-            { id: 'alerts' as const, label: 'Alerts', icon: AlertTriangle, badge: dashboard?.pendingDisputes ?? 0 },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeAdminTab === tab.id;
-            return (
-              <Pressable
-                key={tab.id}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: isActive }}
-                onPress={() => setActiveAdminTab(tab.id)}
-                className={`min-h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl border px-3 ${isActive ? 'border-cyan-400 bg-cyan-400/15' : 'border-slate-700 bg-[#111827]'}`}
-                style={{ minWidth: '46%' }}
-              >
-                <Icon size={15} color={isActive ? '#67e8f9' : '#94a3b8'} />
-                <Text className={`text-xs font-bold ${isActive ? 'text-cyan-100' : 'text-slate-300'}`}>{tab.label}</Text>
-                {tab.badge !== null && tab.badge > 0 ? (
-                  <Text className="rounded-full bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-bold text-rose-200">{tab.badge}</Text>
-                ) : null}
-              </Pressable>
-            );
-          })}
+        <View className="px-5 pt-5">
+          <View className="mb-2 flex-row items-center justify-between px-1">
+            <Text className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Admin workspace</Text>
+            <Text className="text-[10px] text-slate-500">Choose a section</Text>
+          </View>
+          <View
+            className="flex-row flex-wrap rounded-2xl border border-slate-700/80 bg-[#0D1728] p-1"
+            accessibilityRole="tablist"
+          >
+            {[
+              { id: 'review' as const, label: 'Review Queue', icon: Eye },
+              { id: 'performance' as const, label: 'App Performance', icon: Gauge },
+              { id: 'payments' as const, label: 'Payments', icon: CircleDollarSign },
+              { id: 'alerts' as const, label: 'Alerts', icon: AlertTriangle },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeAdminTab === tab.id;
+              const showAlertBadge = tab.id === 'alerts' && activeAlertCount > 0;
+              return (
+                <View key={tab.id} style={{ width: width >= 720 ? '25%' : '50%', padding: 3 }}>
+                  <Pressable
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: isActive }}
+                    accessibilityLabel={tab.id === 'alerts' && activeAlertCount > 0
+                      ? `${tab.label}, ${activeAlertCount} active alert categories`
+                      : tab.label}
+                    onPress={() => setActiveAdminTab(tab.id)}
+                    className={`min-h-[54px] flex-row items-center justify-center gap-2 rounded-xl px-2 ${isActive ? 'border border-cyan-400/50 bg-cyan-400/10' : 'border border-transparent bg-transparent'}`}
+                  >
+                    <Icon size={16} color={isActive ? '#67e8f9' : showAlertBadge ? '#fda4af' : '#94a3b8'} />
+                    <Text
+                      numberOfLines={1}
+                      className={`text-xs font-bold ${isActive ? 'text-cyan-100' : showAlertBadge ? 'text-rose-100' : 'text-slate-300'}`}
+                    >
+                      {tab.label}
+                    </Text>
+                    {showAlertBadge ? (
+                      <Text className="min-w-5 rounded-full bg-rose-500/20 px-1.5 py-0.5 text-center text-[9px] font-bold text-rose-200">
+                        {activeAlertCount}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
         </View>
 
         <View className="px-5 pt-6">
-          <Text className="mb-4 text-lg font-bold text-white">
-            {activeAdminTab === 'review' ? 'Review queue overview' : activeAdminTab === 'performance' ? 'App performance' : activeAdminTab === 'payments' ? 'Payment monitoring' : 'Alerts'}
-          </Text>
           {activeAdminTab === 'review' ? (
             <>
+          <Text className="mb-4 text-lg font-bold text-white">Platform overview</Text>
           {loading ? (
             <View className="rounded-[20px] border border-slate-700 bg-[#111827] p-6">
               <ActivityIndicator color="#67e8f9" />
@@ -432,6 +537,7 @@ export default function AdminScreen() {
                 { label: 'Total users', value: dashboard.userCount, tint: 'text-violet-300', bg: 'bg-violet-500/10', icon: Users },
                 { label: 'Repair requests', value: dashboard.repairCount, tint: 'text-cyan-300', bg: 'bg-cyan-500/10', icon: Wrench },
                 { label: 'Open requests', value: dashboard.openRequests, tint: 'text-emerald-300', bg: 'bg-emerald-500/10', icon: Gauge },
+                { label: 'Revenue', value: `$${dashboard.totalRevenue.toFixed(2)}`, tint: 'text-amber-300', bg: 'bg-amber-500/10', icon: CircleDollarSign },
               ].map((stat) => {
                 const Icon = stat.icon;
                 return (
@@ -446,23 +552,107 @@ export default function AdminScreen() {
               })}
             </View>
           ) : null}
-            </>
-          ) : null}
 
-          {activeAdminTab === 'performance' ? (
-            <PerformanceDashboard
-              samples={performanceHistory}
-              latest={loadDiagnostics ?? performanceHistory[performanceHistory.length - 1] ?? null}
-              loading={loading}
-              historyLoading={performanceHistoryLoading}
-              error={error}
-              waitingTooLong={dashboardWaitingTooLong}
-              width={width}
-            />
-          ) : null}
+            </>
+          ) : activeAdminTab === 'performance' ? (
+            <View>
+              <Text className="mb-4 text-lg font-bold text-white">App performance</Text>
+              <PerformanceDashboard
+                samples={performanceHistory}
+                latest={loadDiagnostics}
+                loading={loading}
+                historyLoading={performanceHistoryLoading}
+                error={error}
+                waitingTooLong={dashboardWaitingTooLong}
+                width={width}
+              />
+            </View>
+          ) : activeAdminTab === 'payments' ? (
+            <View>
+              <Text className="mb-4 text-lg font-bold text-white">Payments</Text>
+              {loading ? (
+                <View className="items-center rounded-2xl border border-slate-700 bg-[#111827] p-6">
+                  <ActivityIndicator color="#67e8f9" />
+                  <Text className="mt-3 text-sm text-slate-300">Loading payment overview...</Text>
+                </View>
+              ) : error ? (
+                <View className="rounded-2xl border border-rose-800 bg-[#1f1220] p-4">
+                  <Text className="text-sm text-rose-300">{error}</Text>
+                </View>
+              ) : dashboard ? (
+                <View className="gap-3">
+                  <View className="rounded-2xl border border-amber-500/30 bg-[#111827] p-5">
+                    <Text className="text-xs font-semibold uppercase tracking-widest text-slate-400">Recorded revenue</Text>
+                    <Text className="mt-2 text-3xl font-black text-amber-300">${dashboard.totalRevenue.toFixed(2)}</Text>
+                    <Text className="mt-1 text-xs text-slate-400">Aggregate revenue reported by the admin dashboard.</Text>
+                  </View>
+                  <View className="flex-row gap-3">
+                    <View className="flex-1 rounded-2xl border border-slate-700 bg-[#111827] p-4">
+                      <Text className="text-2xl font-black text-cyan-200">{dashboard.completedRequests}</Text>
+                      <Text className="mt-1 text-xs text-slate-400">Completed requests</Text>
+                    </View>
+                    <View className="flex-1 rounded-2xl border border-rose-800/70 bg-[#111827] p-4">
+                      <Text className="text-2xl font-black text-rose-200">{dashboard.pendingDisputes}</Text>
+                      <Text className="mt-1 text-xs text-slate-400">Pending disputes</Text>
+                    </View>
+                  </View>
+                  <Text className="text-xs leading-5 text-slate-500">
+                    Payment totals are read-only in this dashboard. Review request payment status from the request details.
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : (
+            <View>
+              <Text className="mb-4 text-lg font-bold text-white">Alerts</Text>
+              {dashboardWaitingTooLong ? (
+                <View className="mb-3 rounded-2xl border border-amber-700/70 bg-amber-500/10 p-4">
+                  <Text className="text-sm font-bold text-amber-100">Dashboard request is taking longer than expected</Text>
+                  <Text className="mt-1 text-xs leading-5 text-slate-300">The request is still running; performance details will be available when it completes.</Text>
+                  <Pressable onPress={() => setActiveAdminTab('performance')} className="mt-3 self-start rounded-lg bg-amber-400/15 px-3 py-2">
+                    <Text className="text-xs font-bold text-amber-100">View performance</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {loadDiagnostics && (loadDiagnostics.status === 0 || loadDiagnostics.status >= 400 || loadDiagnostics.totalMs >= 2_500) ? (
+                <View className="mb-3 rounded-2xl border border-rose-800/70 bg-rose-500/10 p-4">
+                  <Text className="text-sm font-bold text-rose-100">
+                    {loadDiagnostics.status === 0 || loadDiagnostics.status >= 400 ? 'Dashboard request failed' : 'Slow dashboard load detected'}
+                  </Text>
+                  <Text className="mt-1 text-xs leading-5 text-slate-300">
+                    {loadDiagnostics.status === 0
+                      ? 'No HTTP response was received. Check the API connection and server availability.'
+                      : loadDiagnostics.status >= 400
+                        ? `The API returned HTTP ${loadDiagnostics.status}. Check the server logs for the cause.`
+                        : `The latest dashboard load took ${(loadDiagnostics.totalMs / 1_000).toFixed(2)} seconds.`}
+                  </Text>
+                  <Pressable onPress={() => setActiveAdminTab('performance')} className="mt-3 self-start rounded-lg bg-rose-400/15 px-3 py-2">
+                    <Text className="text-xs font-bold text-rose-100">View performance details</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {dashboard?.pendingDisputes ? (
+                <View className="rounded-2xl border border-amber-700/70 bg-[#111827] p-4">
+                  <Text className="text-sm font-bold text-amber-100">{dashboard.pendingDisputes} payment dispute{dashboard.pendingDisputes === 1 ? '' : 's'} need attention</Text>
+                  <Text className="mt-1 text-xs leading-5 text-slate-300">Review the dispute queue before processing related payments.</Text>
+                  <Pressable onPress={() => setActiveAdminTab('payments')} className="mt-3 self-start rounded-lg bg-amber-400/15 px-3 py-2">
+                    <Text className="text-xs font-bold text-amber-100">View payments</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {!dashboardWaitingTooLong
+                && !(loadDiagnostics && (loadDiagnostics.status === 0 || loadDiagnostics.status >= 400 || loadDiagnostics.totalMs >= 2_500))
+                && !dashboard?.pendingDisputes ? (
+                  <View className="rounded-2xl border border-emerald-800/70 bg-emerald-500/10 p-4">
+                    <Text className="text-sm font-bold text-emerald-100">No active alerts</Text>
+                    <Text className="mt-1 text-xs text-slate-300">Performance and dispute checks are clear.</Text>
+                  </View>
+                ) : null}
+            </View>
+          )}
         </View>
 
-        {dashboard && activeAdminTab === 'review' ? (
+        {activeAdminTab === 'review' && dashboard ? (
           <>
             <View className="mt-6 px-5">
               <Text className="mb-4 text-lg font-bold text-white">Workforce overview</Text>
@@ -494,309 +684,100 @@ export default function AdminScreen() {
             ) : null}
 
             <View className="mt-6 px-5">
-              <Text className="mb-4 text-lg font-bold text-white">Review queue</Text>
-              <View className="space-y-3">
-                {dashboard.reviewQueue.length === 0 ? (
-                  <View className="rounded-[20px] border border-slate-700 bg-[#111827] p-5">
-                    <Text className="text-slate-300">No repair requests are currently waiting for review.</Text>
-                  </View>
-                ) : (
-                  dashboard.reviewQueue.map((request) => (
-                    <View key={request.id} className="rounded-[22px] border border-slate-700 bg-[#111827] p-4">
-                      <View className="mb-3 flex-row items-center justify-between">
-                        <View>
-                          <Text className="text-base font-bold text-white">#{request.id} · {request.deviceType}</Text>
-                          <Text className="mt-1 text-xs text-slate-400">{request.customer}</Text>
-                        </View>
-                        <View className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1">
-                          <Text className="text-[9px] font-bold uppercase tracking-[0.15em] text-amber-300">{request.status}</Text>
-                        </View>
-                      </View>
-
-                      <View className="mb-3 rounded-xl bg-[#0F172A] p-3">
-                        <Text className="text-sm leading-6 text-slate-300">{request.issue}</Text>
-                      </View>
-
-                      <View className="mb-3 flex-row items-center justify-between">
-                        <Text className="text-xs text-slate-400">{request.createdAt ? new Date(request.createdAt).toLocaleDateString() : 'No date'}</Text>
-                        <Text className="text-sm font-bold text-cyan-300">${request.amount.toFixed(2)}</Text>
-                      </View>
-
-                      <View className="gap-2">
-                        <View className="flex-row gap-2">
-                          <Pressable
-                            onPress={() => handleReviewRequest(request.id)}
-                            className="flex-1 flex-row items-center justify-center gap-1 rounded-xl border border-cyan-500 bg-cyan-500/10 px-2 py-2.5"
-                          >
-                            <Eye size={12} color="#7dd3fc" />
-                            <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-cyan-200">Review</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => setActionMessage('Only a manager may approve and assign a repair request.')}
-                            className="flex-1 flex-row items-center justify-center gap-1 rounded-xl border border-slate-600 bg-slate-700/40 px-2 py-2.5"
-                          >
-                            <CheckCircle2 size={12} color="#fff" />
-                            <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-slate-300">Manager review required</Text>
-                          </Pressable>
-                        </View>
-
-                        <View className="rounded-2xl border border-slate-700 bg-[#0F172A] p-3">
-                          <Text className="mb-2 text-[9px] font-bold uppercase tracking-[0.18em] text-amber-200">Select technician</Text>
-                          <View className="flex-row flex-wrap gap-2">
-                            {(dashboard?.technicians ?? []).map((tech) => {
-                              const isSelected = (selectedTechnicianId[request.id] ?? dashboard?.technicians?.[0]?.id ?? 0) === tech.id;
-                              return (
-                                <Pressable
-                                  key={tech.id}
-                                  onPress={() => setSelectedTechnicianId((previous) => ({ ...previous, [request.id]: tech.id }))}
-                                  className={`rounded-full border px-2 py-1 ${isSelected ? 'border-emerald-400 bg-emerald-500/15' : 'border-slate-600 bg-[#0f172a]'}`}
-                                >
-                                  <Text className={`text-[10px] font-bold ${isSelected ? 'text-emerald-200' : 'text-slate-300'}`}>{tech.fullName}</Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                          <View className="mt-3 flex-row gap-2">
-                            <Pressable
-                              onPress={() => handleAssignTechnician(request.id)}
-                              className="flex-1 flex-row items-center justify-center gap-1 rounded-xl border border-emerald-500 bg-emerald-500/10 px-2 py-2.5"
-                            >
-                              <UserRoundCog size={12} color="#6ee7b7" />
-                              <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-200">Assign</Text>
-                            </Pressable>
-                          </View>
-                          <Text className="mt-3 text-xs text-slate-400">Scheduling is available only to the assigned technician.</Text>
-                        </View>
-
-                        <View className="flex-row gap-2">
-                          <Pressable
-                            onPress={() => openQuoteTemplate(request.id, request)}
-                            className="flex-1 flex-row items-center justify-center gap-1 rounded-xl border border-sky-500 bg-sky-500/10 px-2 py-2.5"
-                          >
-                            <FileText size={12} color="#7dd3fc" />
-                            <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-sky-200">Quote</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => handleRejectIncomplete(request.id)}
-                            className="flex-1 flex-row items-center justify-center gap-1 rounded-xl border border-rose-500 bg-rose-500/10 px-2 py-2.5"
-                          >
-                            <XCircle size={12} color="#fca5a5" />
-                            <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-rose-200">Reject</Text>
-                          </Pressable>
-                        </View>
-
-                        {quoteEditorId === request.id ? (
-                          <View className="rounded-2xl border border-sky-500 bg-sky-500/5 p-3">
-                            <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-sky-200">Quotation template</Text>
-
-                            <TextInput
-                              value={quoteDrafts[request.id]?.summary ?? ''}
-                              onChangeText={(value) =>
-                                setQuoteDrafts((previous) => ({
-                                  ...previous,
-                                  [request.id]: { ...(previous[request.id] ?? { diagnosis: 'Device diagnosis: screen and battery fault found during inspection.', quantity: '1', laborCost: '120', partsCost: '80', notes: 'Customer approval required before work begins.' }), summary: value },
-                                }))
-                              }
-                              placeholder="Service summary"
-                              placeholderTextColor="#94a3b8"
-                              className="mt-2 rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-slate-100"
-                            />
-
-                            <TextInput
-                              value={quoteDrafts[request.id]?.diagnosis ?? 'Device diagnosis: screen and battery fault found during inspection.'}
-                              onChangeText={(value) =>
-                                setQuoteDrafts((previous) => ({
-                                  ...previous,
-                                  [request.id]: { ...(previous[request.id] ?? { summary: 'Repair service', quantity: '1', laborCost: '120', partsCost: '80', notes: 'Customer approval required before work begins.' }), diagnosis: value },
-                                }))
-                              }
-                              placeholder="Diagnosis"
-                              placeholderTextColor="#94a3b8"
-                              className="mt-2 rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-slate-100"
-                            />
-
-                            <View className="mt-2 flex-row gap-2">
-                              <TextInput
-                                value={quoteDrafts[request.id]?.quantity ?? '1'}
-                                onChangeText={(value) =>
-                                  setQuoteDrafts((previous) => ({
-                                    ...previous,
-                                    [request.id]: { ...(previous[request.id] ?? { summary: 'Repair service', diagnosis: 'Device diagnosis: screen and battery fault found during inspection.', laborCost: '120', partsCost: '80', notes: 'Customer approval required before work begins.' }), quantity: value },
-                                  }))
-                                }
-                                keyboardType="numeric"
-                                placeholder="Qty"
-                                placeholderTextColor="#94a3b8"
-                                className="w-[20%] rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-slate-100"
-                              />
-                              <TextInput
-                                value={quoteDrafts[request.id]?.laborCost ?? '120'}
-                                onChangeText={(value) =>
-                                  setQuoteDrafts((previous) => ({
-                                    ...previous,
-                                    [request.id]: { ...(previous[request.id] ?? { summary: 'Repair service', diagnosis: 'Device diagnosis: screen and battery fault found during inspection.', quantity: '1', partsCost: '80', notes: 'Customer approval required before work begins.' }), laborCost: value },
-                                  }))
-                                }
-                                keyboardType="numeric"
-                                placeholder="Labor RWF"
-                                placeholderTextColor="#94a3b8"
-                                className="flex-1 rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-slate-100"
-                              />
-                              <TextInput
-                                value={quoteDrafts[request.id]?.partsCost ?? '80'}
-                                onChangeText={(value) =>
-                                  setQuoteDrafts((previous) => ({
-                                    ...previous,
-                                    [request.id]: { ...(previous[request.id] ?? { summary: 'Repair service', diagnosis: 'Device diagnosis: screen and battery fault found during inspection.', quantity: '1', laborCost: '120', notes: 'Customer approval required before work begins.' }), partsCost: value },
-                                  }))
-                                }
-                                keyboardType="numeric"
-                                placeholder="Parts RWF"
-                                placeholderTextColor="#94a3b8"
-                                className="flex-1 rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-slate-100"
-                              />
-                            </View>
-
-                            <View className="mt-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
-                              <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-200">Total due</Text>
-                              <Text className="mt-1 text-base font-bold text-white">
-                                {((Number(quoteDrafts[request.id]?.laborCost ?? 0) + Number(quoteDrafts[request.id]?.partsCost ?? 0))).toLocaleString()} RWF
-                              </Text>
-                            </View>
-
-                            <TextInput
-                              value={quoteDrafts[request.id]?.notes ?? 'Customer approval required before work begins.'}
-                              onChangeText={(value) =>
-                                setQuoteDrafts((previous) => ({
-                                  ...previous,
-                                  [request.id]: { ...(previous[request.id] ?? { summary: 'Repair service', diagnosis: 'Device diagnosis: screen and battery fault found during inspection.', quantity: '1', laborCost: '120', partsCost: '80' }), notes: value },
-                                }))
-                              }
-                              multiline
-                              placeholder="Short quote note"
-                              placeholderTextColor="#94a3b8"
-                              className="mt-2 min-h-[70px] rounded-xl border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-slate-100"
-                            />
-
-                            <View className="mt-3 flex-row gap-2">
-                              <Pressable
-                                onPress={() => handleSendQuotation(request.id)}
-                                className="flex-1 rounded-xl bg-sky-500 px-3 py-2.5"
-                              >
-                                <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-white">Send quote</Text>
-                              </Pressable>
-                              <Pressable
-                                onPress={() => setQuoteEditorId(null)}
-                                className="flex-1 rounded-xl border border-slate-600 bg-[#0f172a] px-3 py-2.5"
-                              >
-                                <Text className="text-center text-[9px] font-bold uppercase tracking-[0.18em] text-slate-200">Close</Text>
-                              </Pressable>
-                            </View>
-                          </View>
-                        ) : null}
-                      </View>
-                    </View>
-                  ))
-                )}
+              <Text className="mb-4 text-lg font-bold text-white">Repair requests</Text>
+              <View className="mb-4 flex-row flex-wrap gap-2">
+                {[
+                  { id: 'review' as const, label: 'Review queue', count: reviewQueue.length },
+                  { id: 'inProgress' as const, label: 'In progress', count: requests.filter((request) => IN_PROGRESS_STATUSES.has(request.status.toLowerCase())).length },
+                  { id: 'completed' as const, label: 'Completed', count: requests.filter((request) => COMPLETED_STATUSES.has(request.status.toLowerCase())).length },
+                ].map((tab) => {
+                  const isActive = activeJobTab === tab.id;
+                  return (
+                    <Pressable
+                      key={tab.id}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: isActive }}
+                      onPress={() => setActiveJobTab(tab.id)}
+                      className={`min-h-11 flex-row items-center justify-center gap-2 rounded-xl border px-3 ${isActive ? 'border-cyan-400 bg-cyan-400/15' : 'border-slate-700 bg-[#111827]'}`}
+                    >
+                      <Text className={`text-xs font-bold ${isActive ? 'text-cyan-100' : 'text-slate-300'}`}>{tab.label}</Text>
+                      <Text className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${isActive ? 'bg-cyan-400/20 text-cyan-100' : 'bg-slate-700 text-slate-300'}`}>
+                        {tab.count}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
+
+              {activeRequests.length === 0 ? (
+                <View className="rounded-[20px] border border-slate-700 bg-[#111827] p-5">
+                  <Text className="text-sm text-slate-300">
+                    {activeJobTab === 'review'
+                      ? 'No repair requests are currently waiting for review.'
+                      : activeJobTab === 'inProgress'
+                        ? 'There are no jobs in progress.'
+                        : 'There are no completed jobs yet.'}
+                  </Text>
+                </View>
+              ) : (
+                <View className="gap-2">
+                  {activeRequests.map((request) => (
+                    <Pressable
+                      key={request.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open request ${request.id} details`}
+                      onPress={() => {
+                        setActionMessage(null);
+                        setSelectedRequestId(request.id);
+                      }}
+                      className="flex-row items-center justify-between rounded-2xl border border-slate-700 bg-[#111827] p-4"
+                    >
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-sm font-bold text-white" numberOfLines={1}>
+                          Request #{request.id} | {request.deviceType}
+                        </Text>
+                        <Text className="mt-1 text-xs text-slate-400" numberOfLines={1}>{request.customer}</Text>
+                      </View>
+                      <View className="ml-3 flex-row items-center gap-2">
+                        <Text className="text-[10px] font-semibold capitalize text-slate-300">
+                          {request.status.replace(/_/g, ' ')}
+                        </Text>
+                        <ChevronRight size={17} color="#94a3b8" />
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
           </>
         ) : null}
 
-        {activeAdminTab === 'payments' ? (
-          <View className="mt-6 px-5">
-            <Text className="mb-4 text-lg font-bold text-white">Monitor payments</Text>
-            {dashboard ? (
-              <View className="rounded-2xl border border-amber-700/50 bg-[#111827] p-5">
-                <View className="flex-row items-center gap-3">
-                  <View className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/10">
-                    <CircleDollarSign size={20} color="#fcd34d" />
+        {activeAdminTab === 'review' ? <View className="mt-6 px-5">
+          <Text className="mb-4 text-lg font-bold text-white">Operational focus</Text>
+              <View className="rounded-[24px] border border-slate-700 bg-[#111827] p-4">
+            {adminActions.map((item) => {
+              const Icon = item.icon;
+              return (
+                <View key={item.label} className="mb-3 flex-row items-center rounded-xl bg-[#0F172A] p-3 last:mb-0">
+                  <View className="mr-3 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/10">
+                    <Icon size={16} color="#c4b5fd" />
                   </View>
-                  <View className="flex-1">
-                    <Text className="text-xs font-bold uppercase tracking-[0.18em] text-amber-200">Total recorded payments</Text>
-                    <Text className="mt-1 text-2xl font-black text-white">${dashboard.totalRevenue.toFixed(2)}</Text>
-                  </View>
+                  <Text className="flex-1 text-sm leading-6 text-slate-300">{item.label}</Text>
                 </View>
-                <Text className="mt-4 text-xs leading-5 text-slate-400">
-                  This is the aggregate payment total currently provided by the admin dashboard. Individual transaction history and payment statuses are not part of this dashboard response yet.
-                </Text>
-              </View>
-            ) : (
-              <View className="rounded-2xl border border-slate-700 bg-[#111827] p-5">
-                <Text className="text-sm text-slate-300">{loading ? 'Loading payment summary…' : error ?? 'Payment summary is unavailable.'}</Text>
-              </View>
-            )}
+              );
+            })}
           </View>
-        ) : null}
-
-        {activeAdminTab === 'alerts' ? (
-          <View className="mt-6 px-5">
-            <Text className="mb-4 text-lg font-bold text-white">System alerts</Text>
-            <View className="gap-3">
-              {dashboard && dashboard.pendingDisputes > 0 ? (
-                <View className="flex-row items-start gap-3 rounded-2xl border border-rose-700/50 bg-rose-500/10 p-4">
-                  <AlertTriangle size={18} color="#fda4af" />
-                  <View className="flex-1">
-                    <Text className="text-sm font-bold text-rose-200">{dashboard.pendingDisputes} pending dispute{dashboard.pendingDisputes === 1 ? '' : 's'}</Text>
-                    <Text className="mt-1 text-xs leading-5 text-slate-300">Disputes need admin attention.</Text>
-                  </View>
-                </View>
-              ) : dashboard ? (
-                <View className="flex-row items-start gap-3 rounded-2xl border border-emerald-700/50 bg-emerald-500/10 p-4">
-                  <CheckCircle2 size={18} color="#6ee7b7" />
-                  <View className="flex-1">
-                    <Text className="text-sm font-bold text-emerald-200">No pending disputes</Text>
-                    <Text className="mt-1 text-xs leading-5 text-slate-300">There are no disputes awaiting admin attention.</Text>
-                  </View>
-                </View>
-              ) : null}
-              {dashboard && dashboard.reviewQueue.length > 0 ? (
-                <Pressable
-                  onPress={() => setActiveAdminTab('review')}
-                  className="flex-row items-start gap-3 rounded-2xl border border-amber-700/50 bg-amber-500/10 p-4"
-                >
-                  <Eye size={18} color="#fcd34d" />
-                  <View className="flex-1">
-                    <Text className="text-sm font-bold text-amber-200">{dashboard.reviewQueue.length} request{dashboard.reviewQueue.length === 1 ? '' : 's'} in the review queue</Text>
-                    <Text className="mt-1 text-xs leading-5 text-slate-300">Tap to open the review queue.</Text>
-                  </View>
-                </Pressable>
-              ) : null}
-              {loadDiagnostics && (loadDiagnostics.status === 0 || loadDiagnostics.status >= 400 || loadDiagnostics.totalMs >= 2_500) ? (
-                <Pressable
-                  onPress={() => setActiveAdminTab('performance')}
-                  className="flex-row items-start gap-3 rounded-2xl border border-amber-700/50 bg-amber-500/10 p-4"
-                >
-                  <Gauge size={18} color="#fcd34d" />
-                  <View className="flex-1">
-                    <Text className="text-sm font-bold text-amber-200">Dashboard performance issue detected</Text>
-                    <Text className="mt-1 text-xs leading-5 text-slate-300">Tap to inspect the latest measured timings and likely cause.</Text>
-                  </View>
-                </Pressable>
-              ) : loadDiagnostics ? (
-                <View className="flex-row items-start gap-3 rounded-2xl border border-emerald-700/50 bg-emerald-500/10 p-4">
-                  <CheckCircle2 size={18} color="#6ee7b7" />
-                  <View className="flex-1">
-                    <Text className="text-sm font-bold text-emerald-200">No slow dashboard load detected</Text>
-                    <Text className="mt-1 text-xs leading-5 text-slate-300">Latest measured load completed in {(loadDiagnostics.totalMs / 1000).toFixed(2)} seconds.</Text>
-                  </View>
-                </View>
-              ) : null}
-              {!dashboard && loading ? (
-                <View className="rounded-2xl border border-slate-700 bg-[#111827] p-4">
-                  <ActivityIndicator color="#67e8f9" />
-                  <Text className="mt-3 text-center text-sm text-slate-300">Loading alerts…</Text>
-                </View>
-              ) : null}
-              {!dashboard && error ? (
-                <View className="rounded-2xl border border-rose-800 bg-[#1f1220] p-4">
-                  <Text className="text-sm text-rose-300">{error}</Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
+        </View> : null}
       </ScrollView>
+      <AdminRequestDetailsModal
+        request={selectedRequest}
+        technicians={dashboard?.technicians ?? []}
+        actionMessage={actionMessage}
+        onClose={() => setSelectedRequestId(null)}
+        onReview={handleReviewRequest}
+        onReject={handleRejectIncomplete}
+        onSendQuotation={handleSendQuotation}
+      />
     </View>
   );
 }

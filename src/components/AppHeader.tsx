@@ -2,7 +2,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { Bell, LogOut, Moon, Sun, UserRound, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { Modal, Pressable, ScrollView, Text, View } from './ThemedNative';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from './ThemedNative';
 import { BrandLogo } from './BrandLogo';
 import { useAppTheme } from '../providers/AppThemeProvider';
 import { useAuth } from '../providers/AuthProvider';
@@ -29,6 +29,7 @@ export function AppHeader() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [markingAllNotificationsRead, setMarkingAllNotificationsRead] = useState(false);
   const seenNotificationIds = useRef<Set<number> | null>(null);
   const isLoadingNotifications = useRef(false);
   const notificationPlayer = useAudioPlayer(notificationSound);
@@ -112,12 +113,41 @@ export function AppHeader() {
 
   async function toggleNotifications() {
     if (notificationsOpen) {
+      await markAllNotificationsRead();
+      return;
+    }
+
+    setNotificationError(null);
+    setNotificationsOpen(true);
+    await loadNotifications();
+  }
+
+  async function markAllNotificationsRead() {
+    const unreadIds = notifications
+      .filter((notification) => !notification.isRead)
+      .map((notification) => notification.id);
+
+    if (unreadIds.length === 0) {
       setNotificationsOpen(false);
       return;
     }
 
-    setNotificationsOpen(true);
-    await loadNotifications();
+    setNotificationError(null);
+    setMarkingAllNotificationsRead(true);
+    try {
+      await apiRequest(`/notifications/${user?.id}/read`, {
+        method: 'POST',
+        body: JSON.stringify({ notificationIds: unreadIds }),
+      });
+      setNotifications((current) => current.map((notification) => (
+        unreadIds.includes(notification.id) ? { ...notification, isRead: true } : notification
+      )));
+      setNotificationsOpen(false);
+    } catch (error) {
+      setNotificationError(error instanceof Error ? error.message : 'Unable to mark notifications as read.');
+    } finally {
+      setMarkingAllNotificationsRead(false);
+    }
   }
 
   async function handleNotificationPress(item: NotificationItem) {
@@ -179,8 +209,9 @@ export function AppHeader() {
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={notificationsOpen ? 'Close notifications' : 'Open notifications'}
+            accessibilityLabel={notificationsOpen ? 'Mark all unread notifications as read and close' : 'Open notifications'}
             accessibilityState={{ expanded: notificationsOpen }}
+            disabled={markingAllNotificationsRead}
             onPress={() => void toggleNotifications()}
             className="h-11 w-11 items-center justify-center rounded-full border"
             style={{ backgroundColor: pageColors.surface, borderColor: pageColors.border }}
@@ -222,7 +253,7 @@ export function AppHeader() {
         visible={notificationsOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setNotificationsOpen(false)}
+        onRequestClose={() => void markAllNotificationsRead()}
       >
         <View className="flex-1 justify-end bg-black/70 px-3 pb-6">
           <View className="w-full self-center overflow-hidden rounded-[24px] border border-slate-700 bg-[#0D1B38] p-4" style={{ maxWidth: 400, maxHeight: '75%' }}>
@@ -235,11 +266,14 @@ export function AppHeader() {
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close notifications"
-                onPress={() => setNotificationsOpen(false)}
+                accessibilityLabel={markingAllNotificationsRead ? 'Marking notifications as read' : 'Mark all as read and close notifications'}
+                disabled={markingAllNotificationsRead}
+                onPress={() => void markAllNotificationsRead()}
                 className="rounded-full p-2"
               >
-                <X size={20} color={pageColors.muted} />
+                {markingAllNotificationsRead
+                  ? <ActivityIndicator color={pageColors.muted} />
+                  : <X size={20} color={pageColors.muted} />}
               </Pressable>
             </View>
             {notifications.length === 0 ? (

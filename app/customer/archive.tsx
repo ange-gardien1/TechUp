@@ -21,7 +21,7 @@ type RepairRequest = {
   createdAt?: string | null;
 };
 
-const ARCHIVE_STATUSES = new Set(['completed', 'closed', 'cancelled', 'rejected']);
+const ARCHIVE_STATUSES = new Set(['completed', 'closed', 'cancelled', 'canceled', 'rejected']);
 
 export default function CustomerArchiveScreen() {
   const router = useRouter();
@@ -68,7 +68,7 @@ export default function CustomerArchiveScreen() {
         <View className="px-5 pb-5 pt-4">
           <Text className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-300">Your service records</Text>
           <Text className="mt-2 text-3xl font-black text-white">Repair history</Text>
-          <Text className="mt-2 text-sm leading-5 text-slate-300">Completed and closed requests, all in one place.</Text>
+          <Text className="mt-2 text-sm leading-5 text-slate-300">Completed, cancelled, and rejected requests, all in one place.</Text>
         </View>
 
         <View className="px-5 pt-1">

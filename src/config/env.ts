@@ -35,9 +35,10 @@ export function getAuthTokenSecret() {
   }
   if (!configuredTokenSecret) {
     console.warn('AUTH_TOKEN_SECRET is not configured; sessions will be invalidated when this development server restarts.');
-    resolvedTokenSecret = crypto.randomBytes(32).toString('base64url');
-    return resolvedTokenSecret;
+    const generatedTokenSecret = crypto.randomBytes(32).toString('base64url');
+    resolvedTokenSecret = generatedTokenSecret;
+    return generatedTokenSecret;
   }
   resolvedTokenSecret = configuredTokenSecret;
-  return resolvedTokenSecret;
+  return configuredTokenSecret;
 }

@@ -17,10 +17,11 @@ import {
 } from '../src/components/ThemedNative';
 import { Eye, EyeOff, LockKeyhole, Mail, MoveRight } from 'lucide-react-native';
 import { useAuth } from '../src/providers/AuthProvider';
+import { GoogleSignInButton } from '../src/components/auth/GoogleSignInButton';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, user } = useAuth();
+  const { login, loginWithGoogle, user, sessionExpired } = useAuth();
   const { width, height } = useWindowDimensions();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,6 +41,19 @@ export default function LoginScreen() {
       router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleLogin(idToken: string) {
+    try {
+      setLoading(true);
+      setError('');
+      await loginWithGoogle(idToken);
+      router.replace('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to sign in with Google.');
     } finally {
       setLoading(false);
     }
@@ -87,6 +101,19 @@ export default function LoginScreen() {
               <Text className="mt-1 text-base text-slate-400">
                 Sign in to continue
               </Text>
+              {sessionExpired ? (
+                <Text
+                  accessibilityRole="alert"
+                  className="mt-4 rounded-xl border px-4 py-3 text-sm font-semibold"
+                  style={{
+                    color: '#FCA5A5',
+                    backgroundColor: '#7F1D1D33',
+                    borderColor: '#7F1D1D',
+                  }}
+                >
+                  Your session has expired. Please sign in again to continue.
+                </Text>
+              ) : null}
             </View>
 
             <View
@@ -145,6 +172,19 @@ export default function LoginScreen() {
                 }}
               />
             </View>
+
+            <View className="mt-3 flex-row items-center">
+              <View className="h-px flex-1 bg-slate-700" />
+              <Text className="mx-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                quick sign in
+              </Text>
+              <View className="h-px flex-1 bg-slate-700" />
+            </View>
+            <GoogleSignInButton
+              disabled={loading}
+              onIdToken={handleGoogleLogin}
+              onError={setError}
+            />
 
             <View>
               <Text className="mb-2 ml-1 text-[13px] font-semibold text-slate-200">Email</Text>

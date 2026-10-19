@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Text, View } from '../ThemedNative';
+import { ActivityIndicator, Pressable, Text, View } from '../ThemedNative';
 import { Activity, Database, Download, Gauge, Globe2, Network, Server, Shield, Timer, type LucideIcon } from 'lucide-react-native';
 import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import type { ApiRequestPerformance } from '../../lib/api';
@@ -20,16 +20,16 @@ const PLOT_PADDING = 20;
 
 function formatMilliseconds(value: number | null) {
   if (value === null || !Number.isFinite(value)) return 'Not available';
-  return value >= 1_000 ? `${(value / 1_000).toFixed(2)} s` : `${Math.round(value)} ms`;
+  return value >= 1_000 ? `${(value / 1_000).toFixed(2)} s` : `${Math.round(value).toLocaleString()} ms`;
 }
 
 function formatDuration(value: number) {
-  return value >= 1_000 ? `${(value / 1_000).toFixed(2)} s` : `${Math.round(value)} ms`;
+  return value >= 1_000 ? `${(value / 1_000).toFixed(2)} s` : `${Math.round(value).toLocaleString()} ms`;
 }
 
 function formatBytes(value: number | null) {
   if (value === null || !Number.isFinite(value)) return 'Not available';
-  if (value < 1_000) return `${Math.round(value)} B`;
+  if (value < 1_000) return `${Math.round(value).toLocaleString()} B`;
   if (value < 1_000_000) return `${(value / 1_000).toFixed(1)} KB`;
   return `${(value / 1_000_000).toFixed(2)} MB`;
 }
@@ -50,9 +50,9 @@ function getLoadState(sample: DashboardLoadDiagnostics) {
 
 function SectionHeading({ title, detail }: { title: string; detail?: string }) {
   return (
-    <View className="mb-4">
-      <Text className="text-base font-bold text-white">{title}</Text>
-      {detail ? <Text className="mt-1 text-xs leading-5 text-slate-400">{detail}</Text> : null}
+    <View className="mb-4 border-b border-slate-700/70 pb-3">
+      <Text className="text-[15px] font-bold text-white">{title}</Text>
+      {detail ? <Text className="mt-1 text-[11px] leading-5 text-slate-400">{detail}</Text> : null}
     </View>
   );
 }
@@ -65,6 +65,7 @@ function MetricCard({
   badge,
   comparison,
   width,
+  icon: Icon,
 }: {
   label: string;
   value: string;
@@ -73,21 +74,28 @@ function MetricCard({
   badge?: string;
   comparison?: string | null;
   width: `${number}%`;
+  icon: LucideIcon;
 }) {
+  const hasBadge = badge !== undefined;
   return (
     <View
-      className="mb-3 rounded-2xl border border-slate-700/80 p-4"
+      className="mb-3 rounded-2xl border border-slate-700/70 p-4"
       style={{ width, backgroundColor: CARD_BACKGROUND }}
     >
       <View className="flex-row items-center justify-between gap-2">
-        <Text className="flex-1 text-xs font-semibold text-slate-300">{label}</Text>
-        {badge ? (
-          <Text className="rounded-full px-2 py-1 text-[10px] font-bold" style={{ color, backgroundColor: `${color}20` }}>
+        <View className="min-w-0 flex-1 flex-row items-center gap-2">
+          <View className="h-7 w-7 items-center justify-center rounded-lg" style={{ backgroundColor: `${color}18` }}>
+            <Icon size={14} color={color} />
+          </View>
+          <Text className="flex-1 text-xs font-semibold text-slate-300">{label}</Text>
+        </View>
+        {hasBadge ? (
+          <Text className="rounded-full px-2 py-1 text-[9px] font-bold" style={{ color, backgroundColor: `${color}20` }}>
             {badge}
           </Text>
         ) : null}
       </View>
-      <Text className="mt-3 text-2xl font-black" style={{ color }}>{value}</Text>
+      <Text className="mt-4 text-[26px] font-black tracking-tight" style={{ color }}>{value}</Text>
       <Text className="mt-1 text-[11px] leading-4 text-slate-400">{description}</Text>
       {comparison ? <Text className="mt-2 text-[10px] font-semibold text-slate-300">{comparison}</Text> : null}
     </View>
@@ -122,104 +130,140 @@ function PerformanceTrend({ samples }: { samples: DashboardLoadDiagnostics[] }) 
   });
   const points = samples.map((sample, index) => pointFor(sample.totalMs, index));
   const selected = samples[selectedIndex];
+  const targetVisible = PERFORMANCE_TARGET_MS <= maxValue;
   const targetY = pointFor(PERFORMANCE_TARGET_MS, 0).y;
   const yLabels = [maxValue, maxValue / 2, 0];
 
   return (
-    <View className="rounded-2xl border border-slate-700/80 p-4" style={{ backgroundColor: CARD_BACKGROUND }}>
+    <View className="rounded-2xl border border-slate-700/70 p-4" style={{ backgroundColor: CARD_BACKGROUND }}>
       <View className="mb-3 flex-row items-start justify-between gap-2">
         <View className="flex-1">
           <Text className="text-sm font-bold text-white">Dashboard load-time trend</Text>
           <Text className="mt-1 text-[11px] text-slate-400">Latest {samples.length} saved samples · target {formatDuration(PERFORMANCE_TARGET_MS)}</Text>
         </View>
-        <View className="flex-row items-center gap-1.5">
-          <View className="h-2 w-2 rounded-full bg-cyan-400" />
-          <Text className="text-[10px] text-slate-400">Load</Text>
-        </View>
+        <Text className="rounded-full border border-slate-700 px-2 py-1 text-[9px] font-semibold text-slate-300">END-TO-END</Text>
       </View>
-      <View className="flex-row">
-        <View className="h-40 justify-between py-1 pr-2">
-          {yLabels.map((label, index) => (
-            <Text key={index} className="text-[9px] text-slate-500">{(label / 1_000).toFixed(1)} s</Text>
-          ))}
-        </View>
-        <View className="min-w-0 flex-1">
-          <Svg
-            width="100%"
-            height={PLOT_HEIGHT}
-            viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
-            preserveAspectRatio="none"
-            accessibilityLabel={`Line chart of ${samples.length} saved dashboard load samples, in seconds`}
-          >
-            {yLabels.map((_, index) => {
-              const y = PLOT_PADDING + (index / 2) * plotHeight;
-              return <Line key={index} x1={PLOT_PADDING} y1={y} x2={PLOT_WIDTH - PLOT_PADDING} y2={y} stroke="#334155" strokeWidth={1} />;
-            })}
-            <Line
-              x1={PLOT_PADDING}
-              y1={targetY}
-              x2={PLOT_WIDTH - PLOT_PADDING}
-              y2={targetY}
-              stroke="#fbbf24"
-              strokeWidth={1.5}
-              strokeDasharray="5 5"
-            />
-            {points.length > 1 ? (
-              <Polyline
-                points={points.map(({ x, y }) => `${x},${y}`).join(' ')}
-                fill="none"
-                stroke="#22d3ee"
-                strokeWidth={3}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ) : null}
-            {points.map(({ x, y }, index) => {
-              const sample = samples[index];
+      {samples.length > 0 ? (
+        <>
+          <View className="flex-row">
+            <View className="h-40 justify-between py-1 pr-2">
+              {yLabels.map((label, index) => (
+                <Text key={index} className="text-[9px] text-slate-500">{(label / 1_000).toFixed(1)} s</Text>
+              ))}
+            </View>
+            <View className="min-w-0 flex-1">
+              <Svg
+                width="100%"
+                height={PLOT_HEIGHT}
+                viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
+                preserveAspectRatio="none"
+                accessible
+                accessibilityLabel={`Line chart of ${samples.length} saved dashboard load samples, in seconds`}
+              >
+                {yLabels.map((_, index) => {
+                  const y = PLOT_PADDING + (index / 2) * plotHeight;
+                  return <Line key={index} x1={PLOT_PADDING} y1={y} x2={PLOT_WIDTH - PLOT_PADDING} y2={y} stroke="#334155" strokeWidth={1} />;
+                })}
+                {targetVisible ? (
+                  <Line
+                    x1={PLOT_PADDING}
+                    y1={targetY}
+                    x2={PLOT_WIDTH - PLOT_PADDING}
+                    y2={targetY}
+                    stroke="#fbbf24"
+                    strokeWidth={1.5}
+                    strokeDasharray="5 5"
+                  />
+                ) : null}
+                {points.length > 1 ? (
+                  <Polyline
+                    points={points.map(({ x, y }) => `${x},${y}`).join(' ')}
+                    fill="none"
+                    stroke="#22d3ee"
+                    strokeWidth={3}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                ) : null}
+                {points.map(({ x, y }, index) => {
+                  const sample = samples[index];
+                  const slow = sample.status === 0 || sample.status >= 400 || sample.totalMs >= SLOW_LOAD_MS;
+                  return (
+                    <Circle
+                      key={sample.sampledAt}
+                      cx={x}
+                      cy={y}
+                      r={selectedIndex === index ? 6 : 4}
+                      fill={slow ? '#fb7185' : sample.totalMs >= PERFORMANCE_TARGET_MS ? '#fbbf24' : '#22d3ee'}
+                      stroke="#0b1424"
+                      strokeWidth={2}
+                      accessibilityLabel={`${formatSampleTime(sample)}: ${formatDuration(sample.totalMs)}`}
+                    />
+                  );
+                })}
+              </Svg>
+              <View className="mt-1 flex-row justify-between">
+                <Text className="text-[9px] text-slate-500">
+                  {samples[0] ? new Date(samples[0].sampledAt).toLocaleTimeString() : ''}
+                </Text>
+                <Text className="text-[9px] text-slate-500">
+                  {samples.length > 1 ? new Date(samples[samples.length - 1].sampledAt).toLocaleTimeString() : ''}
+                </Text>
+              </View>
+            </View>
+          </View>
+          {selected ? (
+            <View className="mt-3 flex-row flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-700/70 bg-[#0B1424] px-3 py-2.5" accessibilityLiveRegion="polite">
+              <View>
+                <Text className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">Selected sample · {selectedIndex + 1} of {samples.length}</Text>
+                <Text className="mt-1 text-[11px] text-slate-300">{formatSampleTime(selected)}</Text>
+              </View>
+              <Text className="text-base font-bold text-cyan-200">{formatDuration(selected.totalMs)}</Text>
+            </View>
+          ) : null}
+          <View className="mt-2 flex-row flex-wrap gap-1.5">
+            {samples.map((sample, index) => {
               const slow = sample.status === 0 || sample.status >= 400 || sample.totalMs >= SLOW_LOAD_MS;
+              const color = slow ? '#fb7185' : sample.totalMs >= PERFORMANCE_TARGET_MS ? '#fbbf24' : '#22d3ee';
               return (
-                <Circle
+                <Pressable
                   key={sample.sampledAt}
-                  cx={x}
-                  cy={y}
-                  r={selectedIndex === index ? 6 : 4}
-                  fill={slow ? '#fb7185' : sample.totalMs >= PERFORMANCE_TARGET_MS ? '#fbbf24' : '#22d3ee'}
-                  stroke="#0b1424"
-                  strokeWidth={2}
-                  accessibilityLabel={`${formatSampleTime(sample)}: ${formatDuration(sample.totalMs)}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select sample ${index + 1}: ${formatSampleTime(sample)}, ${formatDuration(sample.totalMs)}`}
+                  accessibilityState={{ selected: selectedIndex === index }}
                   onPress={() => setSelectedIndex(index)}
-                />
+                  className="h-7 w-7 items-center justify-center rounded-lg"
+                  style={{ backgroundColor: selectedIndex === index ? `${color}25` : 'transparent' }}
+                >
+                  <View className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                </Pressable>
               );
             })}
-          </Svg>
-          <View className="mt-1 flex-row justify-between">
-            <Text className="text-[9px] text-slate-500">
-              {samples[0] ? new Date(samples[0].sampledAt).toLocaleTimeString() : ''}
-            </Text>
-            <Text className="text-[9px] text-slate-500">
-              {samples.length > 1 ? new Date(samples[samples.length - 1].sampledAt).toLocaleTimeString() : ''}
-            </Text>
           </View>
+        </>
+      ) : (
+        <View className="items-center rounded-xl border border-slate-700/70 bg-[#0B1424] px-4 py-7">
+          <Gauge size={20} color="#67e8f9" />
+          <Text className="mt-3 text-sm font-semibold text-white">No saved load samples</Text>
+          <Text className="mt-1 max-w-[280px] text-center text-[11px] leading-5 text-slate-400">
+            The trend will appear after a dashboard request is measured. No historical samples are generated.
+          </Text>
         </View>
-      </View>
-      {selected ? (
-        <View className="mt-3 flex-row flex-wrap items-center justify-between gap-2 rounded-xl border border-cyan-900/70 bg-[#0B1424] px-3 py-2.5">
-          <Text className="text-[11px] text-slate-300">{formatSampleTime(selected)}</Text>
-          <Text className="text-sm font-bold text-cyan-200">{formatDuration(selected.totalMs)}</Text>
+      )}
+      {samples.length > 0 ? (
+        <View className="mt-3 flex-row flex-wrap gap-x-4 gap-y-2">
+          {[
+            ['#22d3ee', 'Measured load'],
+            ['#fbbf24', '1 s target'],
+            ['#fb7185', 'Slow / failed sample'],
+          ].map(([color, label]) => (
+            <View key={label} className="flex-row items-center gap-1.5">
+              <View className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+              <Text className="text-[10px] text-slate-400">{label}</Text>
+            </View>
+          ))}
         </View>
       ) : null}
-      <View className="mt-3 flex-row flex-wrap gap-x-4 gap-y-2">
-        {[
-          ['#22d3ee', 'Measured load'],
-          ['#fbbf24', '1 s target'],
-          ['#fb7185', 'Slow / failed sample'],
-        ].map(([color, label]) => (
-          <View key={label} className="flex-row items-center gap-1.5">
-            <View className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-            <Text className="text-[10px] text-slate-400">{label}</Text>
-          </View>
-        ))}
-      </View>
     </View>
   );
 }
@@ -227,6 +271,7 @@ function PerformanceTrend({ samples }: { samples: DashboardLoadDiagnostics[] }) 
 function TimeBreakdown({ sample }: { sample: DashboardLoadDiagnostics }) {
   const canEstimateOutsideRoute = sample.ttfbSource === 'resource'
     && sample.ttfbMs !== null
+    && sample.ttfbMs > 0
     && sample.backendTotalMs !== null
     && sample.status >= 200
     && sample.status < 400
@@ -242,7 +287,7 @@ function TimeBreakdown({ sample }: { sample: DashboardLoadDiagnostics }) {
     <View className="rounded-2xl border border-slate-700/80 p-4" style={{ backgroundColor: CARD_BACKGROUND }}>
       <SectionHeading
         title="Where the time goes"
-        detail="A timing-boundary comparison, not a network-latency calculation."
+        detail="Compares browser Resource Timing TTFB with backend route duration for this sample."
       />
       {canEstimateOutsideRoute ? (
         <>
@@ -328,7 +373,7 @@ function DatabaseOperations({ sample }: { sample: DashboardLoadDiagnostics }) {
               <View className="h-2 overflow-hidden rounded-full bg-slate-800">
                 <View
                   className="h-full rounded-full bg-cyan-400"
-                  style={{ width: `${Math.max(1, (duration / maxDuration) * 100)}%` }}
+                  style={{ width: `${(duration / maxDuration) * 100}%` }}
                 />
               </View>
             </View>
@@ -399,7 +444,7 @@ function SystemHealth({ sample, width }: { sample: DashboardLoadDiagnostics; wid
     <View className="rounded-2xl border border-slate-700/80 p-4" style={{ backgroundColor: CARD_BACKGROUND }}>
       <SectionHeading title="System health" detail="Unavailable measurements are shown as such; small values are not automatically healthy." />
       <View className="flex-row flex-wrap justify-between">
-        <HealthMetric icon={Activity} label="Event-loop p99" value={eventLoopValue} status={eventLoopStatus} width={metricWidth} />
+        <HealthMetric icon={Activity} label="Event-loop lag (p99)" value={eventLoopValue} status={eventLoopStatus} width={metricWidth} />
         <HealthMetric icon={Download} label="Response download" value={formatMilliseconds(sample.responseDownloadMs)} width={metricWidth} />
         <HealthMetric icon={Database} label="Response payload" value={formatBytes(sample.responseBytes)} width={metricWidth} />
         <HealthMetric icon={Globe2} label="DNS lookup" value={formatMilliseconds(sample.dnsLookupMs)} width={metricWidth} />
@@ -414,7 +459,8 @@ function SystemHealth({ sample, width }: { sample: DashboardLoadDiagnostics; wid
         <HealthMetric
           icon={Server}
           label="External services"
-          value={sample.externalServiceMs === null ? 'Not used by this endpoint' : formatMilliseconds(sample.externalServiceMs)}
+          value={formatMilliseconds(sample.externalServiceMs)}
+          status={sample.externalServiceMs === null ? 'Not reported by current instrumentation' : undefined}
           width={metricWidth}
         />
       </View>
@@ -428,6 +474,13 @@ function getDiagnosticInsight(sample: DashboardLoadDiagnostics, databaseInconsis
   }
   if (sample.status === 0 || sample.status >= 400) {
     return `The latest dashboard request did not complete successfully (HTTP ${sample.status || 'no response'}); latency comparisons should wait for a successful sample.`;
+  }
+  const slowestDatabaseOperation = Object.entries(sample.databaseQueryBreakdown)
+    .filter(([, duration]) => Number.isFinite(duration) && duration >= 0)
+    .sort(([, firstDuration], [, secondDuration]) => secondDuration - firstDuration)[0];
+  if (slowestDatabaseOperation && slowestDatabaseOperation[1] >= 500) {
+    const label = databaseOperationLabels[slowestDatabaseOperation[0]] ?? slowestDatabaseOperation[0].replaceAll('_', ' ');
+    return `The slowest measured database round trip is ${label} at ${formatMilliseconds(slowestDatabaseOperation[1])}. Round-trip timing can include connection-pool waiting and is not database-engine execution time.`;
   }
   if (sample.backendTotalMs === null || sample.uiRenderingMs === null) {
     return 'Insufficient measured data to compare backend route and UI rendering durations.';
@@ -483,58 +536,62 @@ export default function PerformanceDashboard({
         </View>
       ) : null}
 
-      {latest ? (
+      <View>
+        <SectionHeading title="Performance summary" detail="Latest measured request · UI commit timing is measured separately." />
         <View className="flex-row flex-wrap justify-between">
           <MetricCard
             label="Total dashboard load"
-            value={formatDuration(latest.totalMs)}
+            value={latest ? formatDuration(latest.totalMs) : 'Not available'}
             description="Client elapsed from request setup through response parsing; UI commit is separate."
             color={loadState?.color}
             badge={loadState?.label}
             comparison={compare}
             width={metricWidth}
+            icon={Timer}
           />
           <MetricCard
             label="Backend route duration"
-            value={formatMilliseconds(latest.backendTotalMs)}
+            value={latest ? formatMilliseconds(latest.backendTotalMs) : 'Not available'}
             description="Server-Timing app interval; includes route processing, not database-only execution."
             color="#7dd3fc"
             width={metricWidth}
+            icon={Server}
           />
           <MetricCard
             label="UI render / commit"
-            value={formatMilliseconds(latest.uiRenderingMs)}
+            value={latest ? formatMilliseconds(latest.uiRenderingMs) : 'Not available'}
             description="Time measured after dashboard data assignment until UI commit."
             color="#a5b4fc"
             width={metricWidth}
+            icon={Activity}
           />
         </View>
-      ) : loading || historyLoading ? (
-        <View className="items-center rounded-2xl border border-slate-700 p-8" style={{ backgroundColor: CARD_BACKGROUND }}>
-          <ActivityIndicator color="#67e8f9" />
-          <Text className="mt-3 text-xs text-slate-400">Loading saved performance samples…</Text>
-        </View>
-      ) : (
-        <View className="rounded-2xl border border-slate-700 p-5" style={{ backgroundColor: CARD_BACKGROUND }}>
-          <Gauge size={20} color="#67e8f9" />
-          <Text className="mt-3 text-sm font-bold text-white">No performance samples yet</Text>
-          <Text className="mt-1 text-xs leading-5 text-slate-400">
-            A saved sample will appear after an admin dashboard load is measured. Historical data is not generated.
-          </Text>
-        </View>
-      )}
+        {!latest && (loading || historyLoading) ? (
+          <View className="flex-row items-center gap-2 pb-2">
+            <ActivityIndicator color="#67e8f9" />
+            <Text className="text-[11px] text-slate-400">Loading saved performance data…</Text>
+          </View>
+        ) : null}
+        {!latest && !loading && !historyLoading ? (
+          <View className="mb-3 rounded-xl border border-slate-700/70 bg-[#0B1424] p-3">
+            <Text className="text-xs leading-5 text-slate-300">
+              No performance sample is available yet. Metrics will appear after a dashboard request is measured; historical data is not generated.
+            </Text>
+          </View>
+        ) : null}
+      </View>
 
-      {samples.length > 0 ? <PerformanceTrend samples={samples} /> : null}
+      <PerformanceTrend samples={samples} />
 
       {latest ? (
         <>
           <TimeBreakdown sample={latest} />
           <DatabaseOperations sample={latest} />
           <SystemHealth sample={latest} width={width} />
-          <View className="rounded-2xl border border-cyan-900/70 bg-[#0D1C2D] p-4">
+          <View className={`rounded-2xl border p-4 ${databaseInconsistent ? 'border-amber-700/60 bg-amber-500/10' : 'border-cyan-900/70 bg-[#0D1C2D]'}`}>
             <View className="mb-2 flex-row items-center gap-2">
-              <Timer size={15} color="#67e8f9" />
-              <Text className="text-sm font-bold text-cyan-100">Diagnostic insight</Text>
+              <Timer size={15} color={databaseInconsistent ? '#fcd34d' : '#67e8f9'} />
+              <Text className={`text-sm font-bold ${databaseInconsistent ? 'text-amber-100' : 'text-cyan-100'}`}>Diagnostic insight</Text>
             </View>
             <Text className="text-xs leading-5 text-slate-300">
               {getDiagnosticInsight(latest, databaseInconsistent)}

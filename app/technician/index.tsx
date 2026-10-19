@@ -1,5 +1,5 @@
 import { Link, Redirect, useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from '../../src/components/ThemedNative';
 import { useAuth } from '../../src/providers/AuthProvider';
 import { formatScheduleTime, SchedulePicker } from '../../src/components/SchedulePicker';
 import { useMemo, useState } from 'react';
@@ -18,6 +18,7 @@ type TechnicianDashboard = {
     issue: string;
     status: string;
     preferredTime: string | null;
+    hasPhoto: boolean;
     amount: number;
     createdAt: string | null;
     completedAt: string | null;
@@ -29,8 +30,10 @@ export default function TechnicianScreen() {
   const { user, logout } = useAuth();
   const [dashboard, setDashboard] = useState<TechnicianDashboard | null>(null);
   const [diagnosisByRequest, setDiagnosisByRequest] = useState<Record<number, string>>({});
+  const [sendingDiagnosisByRequest, setSendingDiagnosisByRequest] = useState<Record<number, boolean>>({});
   const [scheduleByRequest, setScheduleByRequest] = useState<Record<number, string>>({});
   const [scheduleDecisionByRequest, setScheduleDecisionByRequest] = useState<Record<number, boolean>>({});
+  const [requestPhoto, setRequestPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,21 +113,42 @@ export default function TechnicianScreen() {
   }
 
   async function handleSendDiagnosis(requestId: number) {
+    if (sendingDiagnosisByRequest[requestId]) return;
+
     const diagnosis = (diagnosisByRequest[requestId] ?? '').trim();
     if (!diagnosis) {
       setError('Please add a diagnosis note before sending it to the team.');
       return;
     }
 
+    setSendingDiagnosisByRequest((previous) => ({ ...previous, [requestId]: true }));
     try {
       await apiRequest(`/repair-requests/${requestId}/diagnosis`, {
         method: 'POST',
         body: JSON.stringify({ userId: user?.id, diagnosis, note: diagnosis }),
       });
+      setDiagnosisByRequest((previous) => ({ ...previous, [requestId]: '' }));
       setError(null);
       await loadDashboard();
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Unable to send diagnosis update');
+    } finally {
+      setSendingDiagnosisByRequest((previous) => ({ ...previous, [requestId]: false }));
+    }
+  }
+
+  async function handleViewRequestPhoto(requestId: number) {
+    try {
+      const request = await apiRequest<{ images?: string[] }>(`/repair-requests/${requestId}?userId=${user?.id}`);
+      const image = request.images?.[0];
+      if (!image) {
+        setError('No photo is attached to this request.');
+        return;
+      }
+      setRequestPhoto(image);
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to load the attached photo.');
     }
   }
 
@@ -242,6 +266,15 @@ export default function TechnicianScreen() {
                       </View>
                       <Text className="text-sm text-slate-300">Customer: {job.customer}</Text>
                       <Text className="mt-1 text-xs text-slate-400">Issue: {job.issue}</Text>
+                      {job.hasPhoto ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => void handleViewRequestPhoto(job.id)}
+                          className="mt-2 self-start rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2"
+                        >
+                          <Text className="text-xs font-semibold text-cyan-200">View attached photo</Text>
+                        </Pressable>
+                      ) : null}
                       {normalizedStatus === 'completed' && job.completedAt ? (
                         <Text className="mt-1 text-xs text-emerald-300">
                           Completed: {new Date(job.completedAt).toLocaleString()}
@@ -319,8 +352,15 @@ export default function TechnicianScreen() {
                           </Pressable>
                         ) : null}
                         {showDiagnosis ? (
-                          <Pressable onPress={() => handleSendDiagnosis(job.id)} className="flex-1 rounded-xl border border-emerald-500 bg-emerald-500/10 px-3 py-2">
-                            <Text className="text-center text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">Send note</Text>
+                          <Pressable
+                            disabled={Boolean(sendingDiagnosisByRequest[job.id])}
+                            onPress={() => handleSendDiagnosis(job.id)}
+                            className="flex-1 rounded-xl border border-emerald-500 bg-emerald-500/10 px-3 py-2"
+                            style={{ opacity: sendingDiagnosisByRequest[job.id] ? 0.6 : 1 }}
+                          >
+                            <Text className="text-center text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">
+                              {sendingDiagnosisByRequest[job.id] ? 'Sending note...' : 'Send note'}
+                            </Text>
                           </Pressable>
                         ) : null}
                       </View>
@@ -339,6 +379,21 @@ export default function TechnicianScreen() {
           </View>
         )}
       </ScrollView>
+      <Modal
+        visible={Boolean(requestPhoto)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRequestPhoto(null)}
+      >
+        <View className="flex-1 items-center justify-center bg-black/80 px-5 py-8">
+          <View className="w-full overflow-hidden rounded-2xl border border-slate-700 bg-[#111827] p-4" style={{ maxWidth: 520 }}>
+            <Image source={{ uri: requestPhoto ?? undefined }} className="h-80 w-full rounded-xl" resizeMode="contain" />
+            <Pressable onPress={() => setRequestPhoto(null)} className="mt-3 min-h-11 justify-center rounded-xl bg-[#1677FF] px-4">
+              <Text className="text-center text-sm font-bold text-white">Close photo</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

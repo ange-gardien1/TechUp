@@ -4,7 +4,7 @@ The API uses signed bearer tokens for authenticated routes. Login and registrati
 
 Set `AUTH_TOKEN_SECRET` in the server environment to a stable, randomly generated secret of at least 32 bytes. Production server startup fails if the secret is missing or too short. Development can omit it, in which case the server generates an ephemeral secret and all tokens become invalid when the process restarts.
 
-Tokens expire after eight hours and currently require the user to sign in again after expiry. Protected requests also verify that the account still exists and its role has not changed. Logout removes the token from the current client; it does not revoke a token already copied from that client before its expiry.
+Tokens expire after eight hours. When a protected request returns an authentication error, the client clears the local session, redirects to login, and tells the user to sign in again. Protected requests also verify that the account still exists and its role has not changed. Logout removes the token from the current client; it does not revoke a token already copied from that client before its expiry.
 
 Existing SHA-256 password hashes are still verified for compatibility and upgraded to scrypt hashes after a successful login. New registrations and server-created default accounts use scrypt.
 

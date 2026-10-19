@@ -534,23 +534,29 @@ export async function getAdminDashboardSummary(
 
   const [userCountResult, repairRows, productCountResult, paymentTotalResult, roleCountsResult, disputeCountResult, technicians] = await Promise.all([
     timedQuery('user_count', () => db.select({ count: count(users.id) }).from(users)),
-    timedQuery('recent_repair_queue', () => db.select({
+    timedQuery('admin_repair_requests', () => db.select({
       id: repairRequests.id,
       customerId: repairRequests.customerId,
+      technicianId: repairRequests.technicianId,
+      customerPhone: repairRequests.customerPhone,
       deviceType: repairRequests.deviceType,
       brand: repairRequests.brand,
       model: repairRequests.model,
       issueDescription: repairRequests.issueDescription,
+      serviceAddress: repairRequests.serviceAddress,
+      preferredTime: repairRequests.preferredTime,
       status: repairRequests.status,
       serviceFee: repairRequests.serviceFee,
+      quoteAmount: repairRequests.quoteAmount,
       paymentStatus: repairRequests.paymentStatus,
       createdAt: repairRequests.createdAt,
+      updatedAt: repairRequests.updatedAt,
+      completedAt: repairRequests.completedAt,
       customerName: users.fullName,
     })
       .from(repairRequests)
       .leftJoin(users, eq(repairRequests.customerId, users.id))
-      .orderBy(desc(repairRequests.createdAt))
-      .limit(8)),
+      .orderBy(desc(repairRequests.createdAt))),
     timedQuery('product_count', () => db.select({ count: count(products.id) }).from(products)),
     timedQuery('payment_total', () => db.select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` }).from(payments)),
     timedQuery('user_role_counts', () => db.select({ role: users.role, count: count(users.id) }).from(users).groupBy(users.role)),
@@ -563,12 +569,35 @@ export async function getAdminDashboardSummary(
   ]);
 
   const totalRevenue = Number(paymentTotalResult[0]?.total ?? 0);
-  const openRequests = repairRows.filter((request) => !['completed', 'cancelled', 'rejected'].includes(request.status ?? '')).length;
-  const completedRequests = repairRows.filter((request) => request.status === 'completed').length;
+  const openRequests = repairRows.filter((request) =>
+    !['completed', 'closed', 'cancelled', 'rejected'].includes(String(request.status ?? '').toLowerCase()),
+  ).length;
+  const completedRequests = repairRows.filter((request) =>
+    ['completed', 'closed'].includes(String(request.status ?? '').toLowerCase()),
+  ).length;
   const technicianCount = roleCountsResult.find((item) => item.role === 'technician')?.count ?? 0;
   const customerCount = roleCountsResult.find((item) => item.role === 'customer')?.count ?? 0;
   const managerCount = roleCountsResult.find((item) => item.role === 'manager')?.count ?? 0;
   const adminCount = roleCountsResult.find((item) => item.role === 'admin')?.count ?? 0;
+  const mappedRequests = repairRows.map((request) => ({
+    id: request.id,
+    customer: request.customerName ?? 'Unknown customer',
+    customerPhone: request.customerPhone,
+    deviceType: request.deviceType,
+    brand: request.brand,
+    model: request.model,
+    issue: request.issueDescription,
+    serviceAddress: request.serviceAddress,
+    preferredTime: request.preferredTime,
+    status: request.status ?? 'submitted',
+    paymentStatus: request.paymentStatus ?? 'pending',
+    technicianId: request.technicianId,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    completedAt: request.completedAt,
+    amount: Number(request.serviceFee ?? 0),
+    quoteAmount: request.quoteAmount === null ? null : Number(request.quoteAmount),
+  }));
 
   return {
     userCount: Number(userCountResult[0]?.count ?? 0),
@@ -583,15 +612,10 @@ export async function getAdminDashboardSummary(
     totalRevenue,
     pendingDisputes: Number(disputeCountResult[0]?.count ?? 0),
     technicians: technicians.map((tech) => ({ id: tech.id, fullName: tech.fullName, email: tech.email })),
-    reviewQueue: repairRows.map((request) => ({
-      id: request.id,
-      customer: request.customerName ?? 'Unknown customer',
-      deviceType: request.deviceType,
-      issue: request.issueDescription,
-      status: request.status ?? 'submitted',
-      createdAt: request.createdAt,
-      amount: Number(request.serviceFee ?? 0),
-    })),
+    requests: mappedRequests,
+    reviewQueue: mappedRequests.filter((request) =>
+      ['submitted', 'under_review', 'schedule_rejected'].includes(request.status.toLowerCase()),
+    ),
   };
 }
 
@@ -653,6 +677,7 @@ export async function getManagerDashboardSummary() {
       customer: request.customerName ?? 'Unknown customer',
       customerId: request.customerId,
       customerPhone: request.customerPhone,
+      hasPhoto: request.hasPhoto,
       technicianId: request.technicianId,
       device: request.deviceType,
       issue: request.issueDescription,
@@ -676,6 +701,11 @@ export async function getTechnicianDashboardSummary(technicianId: number) {
     issueDescription: repairRequests.issueDescription,
     status: repairRequests.status,
     preferredTime: repairRequests.preferredTime,
+    hasPhoto: sql<boolean>`CASE
+      WHEN jsonb_typeof(${repairRequests.images}) = 'array'
+      THEN jsonb_array_length(${repairRequests.images}) > 0
+      ELSE FALSE
+    END`,
     serviceFee: repairRequests.serviceFee,
     quoteAmount: repairRequests.quoteAmount,
     createdAt: repairRequests.createdAt,
@@ -697,6 +727,7 @@ export async function getTechnicianDashboardSummary(technicianId: number) {
       issue: request.issueDescription,
       status: request.status ?? 'submitted',
       preferredTime: request.preferredTime,
+      hasPhoto: request.hasPhoto,
       amount: Number(request.quoteAmount ?? request.serviceFee ?? 0),
       createdAt: request.createdAt,
       completedAt: request.completedAt,

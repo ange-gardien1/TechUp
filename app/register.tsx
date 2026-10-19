@@ -2,10 +2,11 @@ import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from '../src/components/ThemedNative';
 import { useAuth } from '../src/providers/AuthProvider';
+import { GoogleSignInButton } from '../src/components/auth/GoogleSignInButton';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { register } = useAuth();
+  const { register, loginWithGoogle } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -31,6 +32,19 @@ export default function RegisterScreen() {
     }
   }
 
+  async function handleGoogleRegister(idToken: string) {
+    try {
+      setLoading(true);
+      setError('');
+      await loginWithGoogle(idToken);
+      router.replace('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create an account with Google.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <View className="flex-1 bg-[#09111F]">
       <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 48 }}>
@@ -43,6 +57,28 @@ export default function RegisterScreen() {
 
         <View className="rounded-[28px] border border-slate-800 bg-[#111827] p-5">
           <Text className="text-sm font-bold uppercase tracking-[0.25em] text-cyan-400">Register</Text>
+
+          <View className="mt-4 flex-row items-center">
+            <View className="h-px flex-1 bg-slate-700" />
+            <Text className="mx-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              quick sign up
+            </Text>
+            <View className="h-px flex-1 bg-slate-700" />
+          </View>
+          <GoogleSignInButton
+            disabled={loading}
+            label="Sign up with Google"
+            onIdToken={handleGoogleRegister}
+            onError={setError}
+          />
+
+          <View className="mt-6 flex-row items-center">
+            <View className="h-px flex-1 bg-slate-700" />
+            <Text className="mx-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              or use email
+            </Text>
+            <View className="h-px flex-1 bg-slate-700" />
+          </View>
 
           <TextInput
             value={fullName}

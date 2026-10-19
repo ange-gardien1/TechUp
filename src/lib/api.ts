@@ -28,6 +28,14 @@ export type ApiRequestPerformance = {
   status: number;
 };
 
+type UnauthorizedHandler = () => Promise<void>;
+
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler;
+}
+
 function now() {
   return typeof globalThis.performance?.now === 'function' ? globalThis.performance.now() : Date.now();
 }
@@ -182,8 +190,15 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
+    const isAuthenticatedRoute = !path.startsWith('/auth/');
+    if (response.status === 401 && isAuthenticatedRoute) {
+      await unauthorizedHandler?.();
+    }
+
     const message =
-      typeof data === 'object' && data && 'error' in data && typeof data.error === 'string'
+      response.status === 401 && isAuthenticatedRoute
+        ? 'Your session has expired. Please sign in again.'
+        : typeof data === 'object' && data && 'error' in data && typeof data.error === 'string'
         ? data.error
         : `Request failed (${response.status})`;
 

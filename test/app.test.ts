@@ -36,3 +36,14 @@ test('protected routes reject missing bearer tokens before database access', asy
   assert.deepEqual(await response.json(), { error: 'A valid bearer token is required.' });
   assert.equal(response.headers.get('www-authenticate'), 'Bearer');
 });
+
+test('Google auth route is public but requires an identity token', async () => {
+  const response = await fetch(`${baseUrl}/auth/google`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'A Google identity token is required.' });
+});
