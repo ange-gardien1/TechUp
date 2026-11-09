@@ -29,6 +29,13 @@ test('health check remains public and returns the existing response', async () =
   assert.deepEqual(await response.json(), { ok: true });
 });
 
+test('Vercel API paths preserve the existing health endpoint', async () => {
+  const response = await fetch(`${baseUrl}/api/health`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+});
+
 test('protected routes reject missing bearer tokens before database access', async () => {
   const response = await fetch(`${baseUrl}/repair-requests`);
 

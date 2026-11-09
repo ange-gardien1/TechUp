@@ -2,16 +2,16 @@ import { Platform } from 'react-native';
 import { getSessionToken } from './sessionToken';
 
 const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-const productionWebOrigin =
+const productionWebApiBaseUrl =
   Platform.OS === 'web' &&
   process.env.NODE_ENV === 'production' &&
   typeof window !== 'undefined'
-    ? window.location.origin
+    ? `${window.location.origin}/api`
     : undefined;
 
 export const API_BASE_URL =
+  productionWebApiBaseUrl ||
   configuredApiBaseUrl ||
-  productionWebOrigin ||
   (Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://127.0.0.1:4000');
 
 export type ApiRequestPerformance = {
