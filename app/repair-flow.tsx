@@ -170,8 +170,8 @@ function RepairFlowFrame({ children }: {
   children: ReactNode;
 }) {
   return (
-    <View className="flex-1 items-center" style={{ backgroundColor: '#040B18' }}>
-      <View className="flex-1 w-full" style={{ maxWidth: 430, backgroundColor: '#07142F' }}>
+    <View className="flex-1 w-full" style={{ backgroundColor: '#040B18' }}>
+      <View className="flex-1 w-full" style={{ backgroundColor: '#07142F' }}>
         {children}
       </View>
     </View>
@@ -187,9 +187,10 @@ export default function RepairFlowScreen() {
   return (
     <RepairFlowFrame>
       <ScrollView
+        nativeID="app-content-scroll-repair-flow"
         className="flex-1"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 28 }}
+        contentContainerStyle={{ width: '100%', maxWidth: 1280, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 28 }}
       >
         <RepairHero
           onStart={() => router.push(requestPath)}

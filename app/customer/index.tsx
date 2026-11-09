@@ -420,9 +420,9 @@ export default function CustomerScreen() {
   }
 
   return (
-    <View className="flex-1 items-center bg-[#040B18]">
-      <View className="flex-1 w-full bg-[#07142F]" style={{ maxWidth: 430 }}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 28 }}>
+    <View className="flex-1 w-full bg-[#040B18]">
+      <View className="flex-1 w-full bg-[#07142F]">
+      <ScrollView nativeID="app-content-scroll-customer" showsVerticalScrollIndicator={false} contentContainerStyle={{ width: '100%', maxWidth: 1600, alignSelf: 'center', paddingBottom: 28 }}>
         <View className="px-5 pb-5 pt-4">
           <Text className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-300">Customer dashboard</Text>
           <Text className="mt-2 text-3xl font-black text-white">Hi, {user.fullName?.split(' ')[0] ?? 'there'} 👋</Text>

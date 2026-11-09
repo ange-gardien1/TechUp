@@ -32,7 +32,7 @@ export default function DatabaseScreen() {
 
   return (
     <View className="flex-1 bg-[#09111F]">
-      <ScrollView className="flex-1 px-6 py-8" contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView nativeID="app-content-scroll-database" className="flex-1 px-6 py-8" contentContainerStyle={{ paddingBottom: 32 }}>
         <View className="rounded-[24px] border border-slate-700 bg-[#111827] p-6">
           <Text className="text-3xl font-semibold text-white">Live database view</Text>
           <Text className="mt-3 text-base text-slate-300">

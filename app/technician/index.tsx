@@ -187,7 +187,7 @@ export default function TechnicianScreen() {
 
   return (
     <View className="flex-1 bg-[#09111F]">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 36 }}>
+      <ScrollView nativeID="app-content-scroll-technician" showsVerticalScrollIndicator={false} contentContainerStyle={{ width: '100%', maxWidth: 1600, alignSelf: 'center', paddingBottom: 36 }}>
         <View className="bg-[#0B1B4B] px-5 pb-7 pt-8">
           <View className="mb-5 flex-row items-center justify-between">
             <View className="flex-row items-center gap-2">
@@ -220,7 +220,7 @@ export default function TechnicianScreen() {
           </View>
           <View className="flex-row flex-wrap justify-between">
             {technicianStats.map((item) => (
-              <View key={item.label} className="mb-3 w-[31%] min-w-[100px] rounded-2xl border border-slate-700 bg-[#111827] p-4">
+              <View key={item.label} className="mb-3 w-[31%] min-w-[100px] lg:w-[24%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
                 <Text className="text-2xl font-black text-white" style={{ color: item.tone }}>{dashboard ? (item.label === 'Jobs today' ? dashboard.assignedCount : item.value) : item.value}</Text>
                 <Text className="mt-1 text-xs text-slate-400">{item.label}</Text>
               </View>
@@ -247,7 +247,7 @@ export default function TechnicianScreen() {
                 <Text className="text-sm text-slate-300">No jobs are currently assigned to this technician.</Text>
               </View>
             ) : (
-              <View className="space-y-3">
+              <View className="flex-row flex-wrap justify-between gap-4">
                 {activeJobs.map((job) => {
                   const normalizedStatus = String(job.status ?? '').toLowerCase();
                   const hasCustomerTime = Boolean(job.preferredTime?.trim());
@@ -257,7 +257,7 @@ export default function TechnicianScreen() {
                   const showCompletion = normalizedStatus === 'repair_in_progress';
 
                   return (
-                    <View key={job.id} className="rounded-2xl border border-slate-700 bg-[#111827] p-4">
+                    <View key={job.id} className="w-full lg:w-[49%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
                       <View className="mb-2 flex-row items-center justify-between">
                         <Text className="text-base font-bold text-white">#{job.id} · {job.device}</Text>
                         <View className="rounded-full bg-emerald-500/15 px-2 py-1">

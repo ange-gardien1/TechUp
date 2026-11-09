@@ -79,7 +79,7 @@ export default function ManagerRecentScreen() {
 
   return (
     <View className="flex-1 bg-[#09111F]">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView nativeID="app-content-scroll-manager-recent" showsVerticalScrollIndicator={false} contentContainerStyle={{ width: '100%', maxWidth: 1600, alignSelf: 'center', paddingBottom: 40 }}>
         <View className="bg-[#0B1B4B] px-5 pb-7 pt-8">
           <View className="mb-5 flex-row items-center justify-between">
             <Pressable onPress={() => router.back()} className="min-h-11 justify-center">

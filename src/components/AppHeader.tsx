@@ -3,6 +3,7 @@ import { Bell, LogOut, Moon, Sun, UserRound, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from './ThemedNative';
+import { AppBottomNav } from './AppBottomNav';
 import { BrandLogo } from './BrandLogo';
 import { useAppTheme } from '../providers/AppThemeProvider';
 import { useAuth } from '../providers/AuthProvider';
@@ -186,8 +187,8 @@ export function AppHeader() {
   }
 
   return (
-    <View className="px-5 pb-3 pt-2" style={{ backgroundColor: pageColors.page }}>
-      <View className="flex-row items-center justify-between">
+    <View className="app-header px-5 pb-3 pt-2" style={{ backgroundColor: pageColors.page }}>
+      <View className="app-header-row flex-row items-center justify-between">
         <Pressable
           accessibilityRole="link"
           accessibilityLabel="TECHUP home"
@@ -196,6 +197,7 @@ export function AppHeader() {
         >
           <BrandLogo size={82} />
         </Pressable>
+        <AppBottomNav variant="desktop" />
         <View className="flex-row items-center gap-2">
           <Pressable
             accessibilityRole="switch"

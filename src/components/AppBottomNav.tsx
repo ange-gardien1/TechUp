@@ -8,9 +8,10 @@ export type AppBottomNavTab = 'home' | 'requests' | 'newRequest' | 'profile' | '
 
 type AppBottomNavProps = {
   activeTab?: AppBottomNavTab;
+  variant?: 'mobile' | 'desktop';
 };
 
-export function AppBottomNav({ activeTab }: AppBottomNavProps) {
+export function AppBottomNav({ activeTab, variant = 'mobile' }: AppBottomNavProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user } = useAuth();
@@ -49,19 +50,23 @@ export function AppBottomNav({ activeTab }: AppBottomNavProps) {
   const profileRoute = user?.role === 'customer' ? '/customer/profile' : accountRoute;
   const workRoute = isTechnician ? '/technician' : requestsRoute;
   const workLabel = isTechnician ? 'My Performance' : 'My requests';
+  const isDesktop = variant === 'desktop';
 
   return (
-    <View className="border-t px-3 py-2" style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
-      <View className="w-full max-w-[430px] self-center flex-row items-center justify-around">
+    <View
+      className={isDesktop ? 'app-desktop-nav' : 'app-bottom-nav border-t px-3 py-2'}
+      style={!isDesktop ? { backgroundColor: colors.surface, borderColor: colors.border } : undefined}
+    >
+      <View className={isDesktop ? 'app-desktop-nav-items flex-row items-center gap-1' : 'w-full self-center flex-row items-center justify-around'}>
         <Pressable
           accessibilityRole="link"
           accessibilityLabel="Home"
           accessibilityState={{ selected: selectedTab === 'home' }}
           onPress={() => router.replace('/')}
-          className="items-center px-3 py-1.5"
+          className={isDesktop ? 'app-desktop-nav-link flex-row items-center gap-2 rounded-xl px-3 py-2' : 'items-center px-3 py-1.5'}
         >
-          <House size={21} color={colors.accent} />
-          <Text className="mt-1 text-[11px] font-bold" style={{ color: colors.accent }}>
+          <House size={isDesktop ? 18 : 21} color={selectedTab === 'home' ? colors.accent : colors.muted} />
+          <Text className={isDesktop ? 'text-sm font-semibold' : 'mt-1 text-[11px] font-bold'} style={{ color: selectedTab === 'home' ? colors.accent : colors.muted }}>
             Home
           </Text>
         </Pressable>
@@ -70,14 +75,16 @@ export function AppBottomNav({ activeTab }: AppBottomNavProps) {
           accessibilityLabel={workLabel}
           accessibilityState={{ selected: selectedTab === (isTechnician ? 'performance' : 'requests') }}
           onPress={() => router.replace(workRoute)}
-          className="items-center px-3 py-1.5"
+          className={isDesktop ? 'app-desktop-nav-link flex-row items-center gap-2 rounded-xl px-3 py-2' : 'items-center px-3 py-1.5'}
         >
           {isTechnician
-            ? <Gauge size={21} color={selectedTab === 'performance' ? colors.accent : colors.muted} />
-            : <ClipboardList size={21} color={selectedTab === 'requests' ? colors.accent : colors.muted} />}
+            ? <Gauge size={isDesktop ? 18 : 21} color={selectedTab === 'performance' ? colors.accent : colors.muted} />
+            : <ClipboardList size={isDesktop ? 18 : 21} color={selectedTab === 'requests' ? colors.accent : colors.muted} />}
           <Text
             numberOfLines={1}
-            className={`mt-1 text-[11px] ${selectedTab === (isTechnician ? 'performance' : 'requests') ? 'font-bold' : ''}`}
+            className={isDesktop
+              ? `text-sm ${selectedTab === (isTechnician ? 'performance' : 'requests') ? 'font-bold' : 'font-medium'}`
+              : `mt-1 text-[11px] ${selectedTab === (isTechnician ? 'performance' : 'requests') ? 'font-bold' : ''}`}
             style={{ color: selectedTab === (isTechnician ? 'performance' : 'requests') ? colors.accent : colors.muted }}
           >
             {workLabel}
@@ -91,10 +98,13 @@ export function AppBottomNav({ activeTab }: AppBottomNavProps) {
           onPress={() => {
             if (requestRoute) router.replace(requestRoute);
           }}
-          className="-mt-7 h-14 w-14 items-center justify-center rounded-2xl bg-[#1769F5]"
+          className={isDesktop
+            ? 'app-desktop-request-button ml-2 min-h-10 flex-row items-center justify-center gap-2 rounded-xl bg-[#1769F5] px-4'
+            : '-mt-7 h-14 w-14 items-center justify-center rounded-2xl bg-[#1769F5]'}
           style={{ opacity: isTechnician ? 0.55 : 1 }}
         >
-          <Plus size={29} color="#FFFFFF" />
+          <Plus size={isDesktop ? 18 : 29} color="#FFFFFF" />
+          {isDesktop ? <Text className="text-sm font-bold text-white">New request</Text> : null}
         </Pressable>
         {hasShopGadgets ? (
           <Pressable
@@ -102,12 +112,14 @@ export function AppBottomNav({ activeTab }: AppBottomNavProps) {
             accessibilityLabel="Shop gadgets"
             accessibilityState={{ selected: selectedTab === 'gadgets' }}
             onPress={() => router.replace('/shop')}
-            className="items-center px-2 py-1.5"
+            className={isDesktop ? 'app-desktop-nav-link flex-row items-center gap-2 rounded-xl px-3 py-2' : 'items-center px-2 py-1.5'}
           >
-            <Smartphone size={21} color={selectedTab === 'gadgets' ? colors.accent : colors.muted} />
+            <Smartphone size={isDesktop ? 18 : 21} color={selectedTab === 'gadgets' ? colors.accent : colors.muted} />
             <Text
               numberOfLines={1}
-              className={`mt-1 text-[11px] ${selectedTab === 'gadgets' ? 'font-bold' : ''}`}
+              className={isDesktop
+                ? `text-sm ${selectedTab === 'gadgets' ? 'font-bold' : 'font-medium'}`
+                : `mt-1 text-[11px] ${selectedTab === 'gadgets' ? 'font-bold' : ''}`}
               style={{ color: selectedTab === 'gadgets' ? colors.accent : colors.muted }}
             >
               Shop gadgets
@@ -119,10 +131,14 @@ export function AppBottomNav({ activeTab }: AppBottomNavProps) {
             accessibilityLabel="Profile"
             accessibilityState={{ selected: selectedTab === 'profile' }}
             onPress={() => router.replace(profileRoute)}
-            className="items-center px-3 py-1.5"
+            className={isDesktop ? 'app-desktop-nav-link flex-row items-center gap-2 rounded-xl px-3 py-2' : 'items-center px-3 py-1.5'}
           >
-            <UserRound size={21} color={selectedTab === 'profile' ? colors.accent : colors.muted} />
-            <Text className={`mt-1 text-[11px] ${selectedTab === 'profile' ? 'font-bold' : ''}`} style={{ color: selectedTab === 'profile' ? colors.accent : colors.muted }}>
+            <UserRound size={isDesktop ? 18 : 21} color={selectedTab === 'profile' ? colors.accent : colors.muted} />
+            <Text className={isDesktop
+              ? `text-sm ${selectedTab === 'profile' ? 'font-bold' : 'font-medium'}`
+              : `mt-1 text-[11px] ${selectedTab === 'profile' ? 'font-bold' : ''}`}
+              style={{ color: selectedTab === 'profile' ? colors.accent : colors.muted }}
+            >
               Profile
             </Text>
           </Pressable>

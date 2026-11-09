@@ -188,7 +188,7 @@ export default function ManagerScreen() {
 
   return (
     <View className="flex-1 bg-[#09111F]">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 36 }}>
+      <ScrollView nativeID="app-content-scroll-manager" showsVerticalScrollIndicator={false} contentContainerStyle={{ width: '100%', maxWidth: 1600, alignSelf: 'center', paddingBottom: 36 }}>
         <View className="bg-[#0B1B4B] px-5 pb-7 pt-8">
           <View className="mb-5 flex-row items-center justify-between">
             <View className="flex-row items-center gap-2">
@@ -221,7 +221,7 @@ export default function ManagerScreen() {
           </View>
           <View className="flex-row flex-wrap justify-between">
             {managerStats.map((item) => (
-              <View key={item.label} className="mb-3 w-[47%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
+              <View key={item.label} className="mb-3 w-[47%] lg:w-[24%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
                 <Text className="text-2xl font-black text-white" style={{ color: item.tone }}>{item.value}</Text>
                 <Text className="mt-1 text-xs text-slate-400">{item.label}</Text>
               </View>
@@ -253,7 +253,8 @@ export default function ManagerScreen() {
                   <Text className="text-sm text-slate-300">No active repair requests in the queue.</Text>
                 </View>
               ) : (
-                activeRequests.map((task) => {
+                <View className="flex-row flex-wrap justify-between">
+                {activeRequests.map((task) => {
                   const normalizedStatus = String(task.status ?? '').toLowerCase();
                   const showReview = normalizedStatus === 'submitted';
                   const showAssign = ['under_review', 'technician_assigned', 'schedule_rejected'].includes(normalizedStatus);
@@ -261,7 +262,7 @@ export default function ManagerScreen() {
                   const showClosure = normalizedStatus === 'completed';
 
                   return (
-                    <View key={task.id} className="mb-4 rounded-2xl border border-slate-700 bg-[#111827] p-4">
+                    <View key={task.id} className="mb-4 w-full lg:w-[49%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
                       <View className="mb-2 flex-row items-center justify-between">
                         <Text className="text-base font-bold text-white">#{task.id} · {task.device}</Text>
                         <Text className="text-[9px] font-bold uppercase tracking-[0.18em] text-amber-300">{formatRepairStatus(task.status)}</Text>
@@ -363,7 +364,8 @@ export default function ManagerScreen() {
                       </View>
                     </View>
                   );
-                })
+                })}
+                </View>
               )}
               {dashboard.requests.map((task) => (
                 <QuoteComposerModal

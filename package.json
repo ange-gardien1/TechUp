@@ -10,7 +10,9 @@
     "@react-navigation/native": "^7.3.5",
     "@tanstack/react-query": "^5.101.2",
     "@types/react-dom": "~19.2.3",
+    "body-parser": "^2.3.0",
     "buffer": "^6.0.3",
+    "cors": "^2.8.6",
     "drizzle-orm": "^0.45.2",
     "expo": "~57.0.1",
     "expo-audio": "~57.0.5",
@@ -23,6 +25,7 @@
     "expo-secure-store": "~57.0.4",
     "expo-sharing": "~57.0.22",
     "expo-status-bar": "~57.0.0",
+    "express": "^5.2.1",
     "google-auth-library": "^11.3.1",
     "lucide-react-native": "^1.26.0",
     "nativewind": "^4.2.6",
@@ -39,7 +42,8 @@
     "react-native-screens": "4.25.2",
     "react-native-svg": "15.15.4",
     "react-native-web": "^0.21.2",
-    "tailwindcss": "^3.4.19"
+    "tailwindcss": "^3.4.19",
+    "tsx": "^4.22.4"
   },
   "devDependencies": {
     "@types/body-parser": "^1.19.6",
@@ -47,12 +51,8 @@
     "@types/express": "^5.0.6",
     "@types/react": "~19.2.2",
     "babel-preset-expo": "^57.0.1",
-    "body-parser": "^2.3.0",
-    "cors": "^2.8.6",
     "drizzle-kit": "^0.31.10",
-    "express": "^5.2.1",
     "lightningcss-win32-x64-msvc": "^1.27.0",
-    "tsx": "^4.22.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -60,6 +60,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "web:build": "expo export --platform web",
     "server": "tsx src/server.ts",
     "test": "node --import tsx --test test/security.test.ts test/app.test.ts test/repair-workflow.test.ts",
     "db:seed:dev": "tsx scripts/seedDevelopmentData.ts",

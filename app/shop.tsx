@@ -29,7 +29,8 @@ export default function ShopScreen() {
   const colors = isDark
     ? { page: '#0B1220', card: '#111827', border: '#26344A', text: '#F1F5F9', muted: '#A6B2C5' }
     : { page: '#F5F8FC', card: '#FFFFFF', border: '#E4EAF3', text: '#0B1437', muted: '#64748B' };
-  const cardWidth = Math.max(145, (width - 52) / 2);
+  const columnCount = width >= 1280 ? 4 : width >= 768 ? 3 : 2;
+  const cardWidth = Math.max(145, Math.min(360, (width - 88) / columnCount));
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -50,7 +51,7 @@ export default function ShopScreen() {
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.page }}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 28 }}>
+      <ScrollView nativeID="app-content-scroll-shop" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 28 }}>
         <View className="px-5 pb-5 pt-5">
           <Text className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400">TechUp store</Text>
           <Text className="mt-2 text-3xl font-black" style={{ color: colors.text }}>Shop gadgets</Text>

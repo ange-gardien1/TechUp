@@ -181,14 +181,21 @@ export default function CustomerProfileScreen() {
     .join('');
 
   return (
-    <View className="flex-1 items-center bg-[#040B18]">
-      <View className="flex-1 w-full bg-[#07142F]" style={{ maxWidth: 430 }}>
+    <View className="flex-1 w-full bg-[#040B18]">
+      <View className="flex-1 w-full bg-[#07142F]">
         <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView
+            nativeID="app-content-scroll-customer-profile"
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 28 }}
+            contentContainerStyle={{
+              width: '100%',
+              maxWidth: 1100,
+              alignSelf: 'center',
+              paddingBottom: 28,
+            }}
           >
+            <View className="app-profile-layout">
             <View className="px-5 pb-5 pt-4">
               <View className="mb-6 flex-row items-center justify-start">
                 <Link href="/customer" asChild>
@@ -343,6 +350,7 @@ export default function CustomerProfileScreen() {
                 </>
               )}
 
+            </View>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>

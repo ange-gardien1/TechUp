@@ -47,7 +47,7 @@ export default function RegisterScreen() {
 
   return (
     <View className="flex-1 bg-[#09111F]">
-      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 48 }}>
+      <ScrollView nativeID="app-content-scroll-register" contentContainerStyle={{ width: '100%', maxWidth: 600, alignSelf: 'center', padding: 24, paddingBottom: 48 }}>
         <View className="mb-8">
           <Text className="text-4xl font-black text-white">Create customer account</Text>
           <Text className="mt-3 text-base text-slate-300">

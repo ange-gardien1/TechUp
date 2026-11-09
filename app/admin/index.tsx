@@ -451,7 +451,7 @@ export default function AdminScreen() {
 
   return (
     <View className="flex-1 bg-[#09111F]">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 36 }}>
+      <ScrollView nativeID="app-content-scroll-admin" showsVerticalScrollIndicator={false} contentContainerStyle={{ width: '100%', maxWidth: 1600, alignSelf: 'center', paddingBottom: 36 }}>
         <View className="bg-[#0B1B4B] px-5 pb-7 pt-8">
           <View className="mb-5 flex-row items-center justify-between">
             <View className="flex-row items-center gap-2">
@@ -541,7 +541,7 @@ export default function AdminScreen() {
               ].map((stat) => {
                 const Icon = stat.icon;
                 return (
-                  <View key={stat.label} className="mb-3 w-[47%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
+                  <View key={stat.label} className="mb-3 w-[47%] lg:w-[24%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
                     <View className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl ${stat.bg}`}>
                       <Icon size={18} color={stat.tint.includes('violet') ? '#c4b5fd' : stat.tint.includes('cyan') ? '#67e8f9' : stat.tint.includes('emerald') ? '#6ee7b7' : '#fcd34d'} />
                     </View>
@@ -665,7 +665,7 @@ export default function AdminScreen() {
                 ].map((item) => {
                   const Icon = item.icon;
                   return (
-                    <View key={item.label} className="mb-3 w-[47%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
+                    <View key={item.label} className="mb-3 w-[47%] lg:w-[24%] rounded-2xl border border-slate-700 bg-[#111827] p-4">
                       <View className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${item.bg}`}>
                         <Icon size={16} color={item.tint.includes('sky') ? '#7dd3fc' : item.tint.includes('emerald') ? '#6ee7b7' : item.tint.includes('amber') ? '#fcd34d' : '#c4b5fd'} />
                       </View>

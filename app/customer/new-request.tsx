@@ -187,14 +187,15 @@ export default function CustomerNewRequestScreen() {
   }
 
   return (
-    <View className="flex-1 items-center bg-[#040B18]">
-      <View className="flex-1 w-full bg-[#07142F]" style={{ maxWidth: 430 }}>
+    <View className="flex-1 w-full bg-[#040B18]">
+      <View className="flex-1 w-full bg-[#07142F]">
         <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView
+            nativeID="app-content-scroll-customer-new-request"
             className="flex-1"
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 28 }}
+            contentContainerStyle={{ width: '100%', maxWidth: 1100, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 28 }}
           >
             <View className="mb-6 flex-row items-center justify-start">
               <Pressable

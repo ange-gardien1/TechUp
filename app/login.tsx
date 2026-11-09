@@ -69,18 +69,22 @@ export default function LoginScreen() {
   }
 
   return (
-    <View className="flex-1 items-center" style={{ backgroundColor: '#040B18' }}>
-      <View className="flex-1 w-full" style={{ maxWidth: 430, backgroundColor: '#07142F' }}>
+    <View className="flex-1 w-full" style={{ backgroundColor: '#040B18' }}>
+      <View className="flex-1 w-full" style={{ backgroundColor: '#07142F' }}>
         <KeyboardAvoidingView
           className="flex-1"
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <ScrollView
+            nativeID="app-content-scroll-login"
             contentContainerStyle={{
               flexGrow: 1,
               paddingHorizontal: 22,
               paddingTop: compact ? 12 : 20,
               paddingBottom: 24,
+              width: '100%',
+              maxWidth: width >= 1024 ? 520 : width >= 768 ? 640 : undefined,
+              alignSelf: 'center',
             }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -208,7 +212,7 @@ export default function LoginScreen() {
                   placeholder="Email address"
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="none"
-                  autoComplete="email"
+                  autoComplete={Platform.OS === 'android' ? 'off' : 'email'}
                   autoCorrect={false}
                   keyboardType="email-address"
                   returnKeyType="next"

@@ -1,0 +1,96 @@
+name: Deploy TeckUP
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref_name == 'develop' || github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RENDER_API_DEPLOY_HOOK: ${{ secrets.RENDER_API_DEPLOY_HOOK }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL }}
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL" || { echo "DATABASE_URL is not configured for this GitHub environment."; exit 1; }
+          test -n "$RENDER_API_DEPLOY_HOOK" || { echo "RENDER_API_DEPLOY_HOOK is not configured for this GitHub environment."; exit 1; }
+          test -n "$VERCEL_TOKEN" || { echo "VERCEL_TOKEN is not configured for this GitHub environment."; exit 1; }
+          test -n "$VERCEL_ORG_ID" || { echo "VERCEL_ORG_ID is not configured for this GitHub environment."; exit 1; }
+          test -n "$VERCEL_PROJECT_ID" || { echo "VERCEL_PROJECT_ID is not configured for this GitHub environment."; exit 1; }
+          [[ "$EXPO_PUBLIC_API_BASE_URL" == https://* ]] || { echo "EXPO_PUBLIC_API_BASE_URL must be set to the environment's HTTPS API origin."; exit 1; }
+
+      - name: Pull Vercel project settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          if [[ "$GITHUB_REF_NAME" == "main" ]]; then
+            npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          else
+            npx --yes vercel@latest pull --yes --environment=preview --git-branch="$GITHUB_REF_NAME" --token="$VERCEL_TOKEN"
+          fi
+
+      - name: Build Vercel deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_NAME" == "main" ]]; then
+            npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN"
+          else
+            npx --yes vercel@latest build --token="$VERCEL_TOKEN"
+          fi
+
+      - name: Apply database migrations
+        run: npm run db:migrate
+
+      - name: Deploy API to Render
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error "$RENDER_API_DEPLOY_HOOK" --output /dev/null
+
+      - name: Deploy web app to Vercel
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_NAME" == "main" ]]; then
+            npx --yes vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          else
+            npx --yes vercel@latest deploy --prebuilt --token="$VERCEL_TOKEN"
+          fi

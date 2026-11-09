@@ -154,6 +154,9 @@ export default function HomeScreen() {
         accent: "#2563EB",
         heroColors: ["#0B1B4B", "#101D4A", "#10245A"] as const,
       };
+  const serviceCardWidth = width >= 1024
+    ? Math.min(290, (width - 100) / services.length)
+    : 125;
 
   const normalizedRequestStatus = String(activeRequest?.status ?? "submitted").toLowerCase();
   const requestStatusIndex = ({
@@ -191,13 +194,14 @@ export default function HomeScreen() {
   }
 
   return (
-    <View className="flex-1 items-center" style={{ backgroundColor: theme.page }}>
+    <View className="flex-1 w-full" style={{ backgroundColor: theme.page }}>
       <View className="flex-1 w-full" style={{ backgroundColor: theme.page }}>
         <ScrollView
+          nativeID="app-content-scroll-home"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
         >
-        <View style={{ width: "100%", maxWidth: 430, alignSelf: "center" }}>
+        <View className="app-home-content" style={{ width: "100%", alignSelf: "center" }}>
         {/* ========================================================= */}
         {/* HERO */}
         {/* ========================================================= */}
@@ -210,7 +214,7 @@ export default function HomeScreen() {
             style={{
               borderRadius: 30,
               overflow: "hidden",
-              minHeight: width < 390 ? 440 : 430,
+              minHeight: width >= 1024 ? 520 : width < 390 ? 440 : 430,
             }}
           >
             {/* Quiet brand mark behind the technician */}
@@ -232,8 +236,8 @@ export default function HomeScreen() {
                 position: "absolute",
                 right: 0,
                 bottom: -26,
-                width: width < 360 ? 250 : width < 520 ? 274 : 310,
-                height: width < 390 ? 368 : 390,
+                width: width >= 1024 ? 480 : width < 360 ? 250 : width < 520 ? 274 : 310,
+                height: width >= 1024 ? 540 : width < 390 ? 368 : 390,
               }}
             />
 
@@ -377,7 +381,7 @@ export default function HomeScreen() {
                 >
                   <Pressable
                     className="mr-3 rounded-[20px] border px-3 py-4"
-                    style={{ width: 125, backgroundColor: theme.surface, borderColor: theme.border }}
+                    style={{ width: serviceCardWidth, backgroundColor: theme.surface, borderColor: theme.border }}
                   >
                     <View
                       className="h-14 w-14 items-center justify-center rounded-2xl"
@@ -683,7 +687,6 @@ export default function HomeScreen() {
         </View>
         </View>
         </ScrollView>
-
       </View>
     </View>
   );

@@ -1,3 +1,105 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.app-shell-root,
+.app-shell-frame {
+  width: 100%;
+}
+
+.app-home-content {
+  max-width: 1600px;
+}
+
+.app-profile-layout {
+  width: 100%;
+}
+
+[id^="app-content-scroll-"] {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+[id^="app-content-scroll-"] > div {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.app-header {
+  z-index: 20;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.app-desktop-nav {
+  display: none;
+}
+
+.app-desktop-nav-link:hover {
+  background-color: rgba(96, 165, 250, 0.1);
+}
+
+@media (min-width: 1024px) {
+  [id^="app-content-scroll-"] {
+    padding-right: clamp(40px, 5vw, 88px);
+    padding-left: clamp(40px, 5vw, 88px);
+  }
+
+  .app-header {
+    padding: 8px clamp(40px, 5vw, 88px);
+  }
+
+  .app-header-row {
+    min-height: 64px;
+    gap: 24px;
+  }
+
+  .app-header-row > a {
+    min-height: 56px;
+  }
+
+  .app-desktop-nav {
+    display: flex;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .app-bottom-nav {
+    display: none;
+  }
+
+  .app-profile-layout {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .app-profile-layout > div:first-child {
+    width: 36%;
+  }
+
+  .app-profile-layout > div:last-child {
+    width: 64%;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  [id^="app-content-scroll-"] {
+    padding-right: clamp(20px, 3vw, 32px);
+    padding-left: clamp(20px, 3vw, 32px);
+  }
+}
