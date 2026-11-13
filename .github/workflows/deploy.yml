@@ -42,6 +42,8 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/teckup_test
 
       - name: Validate deployment secrets
         shell: bash
