@@ -26,6 +26,8 @@ Pushes to `develop` run tests, build a Vercel Preview, apply migrations to the s
 
 Create separate Neon databases/branches for staging and production. Set their credentials independently in Vercel Preview/Production and the matching GitHub Actions environment. The workflow applies `npm run db:migrate` before deploying. Ensure the staging branch does not contain sensitive production data.
 
+The additive migrations use PostgreSQL `ADD COLUMN IF NOT EXISTS` for columns also created by the legacy development initializer. This lets a database initialized by the older setup be brought under Drizzle migration tracking without failing on those existing columns.
+
 ## Local development
 
 Run the API and web app separately during local development:
