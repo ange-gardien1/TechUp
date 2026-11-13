@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF_NAME" == "main" ]]; then
-            npx --yes vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+            npx --yes vercel@latest deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN"
           else
             npx --yes vercel@latest deploy --prebuilt --token="$VERCEL_TOKEN"
           fi

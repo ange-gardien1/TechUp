@@ -6,14 +6,16 @@ The Expo Router web app and Express API deploy together to the same Vercel proje
 
 1. In Vercel, use the existing `tech-up-gamma` project connected to this repository. Keep the Root Directory at the repository root, Framework Preset set to **Other**, the build command as `npm run web:build`, and the output directory as `dist`.
 2. In the Vercel project settings, add `DATABASE_URL` and `AUTH_TOKEN_SECRET` to both **Preview** and **Production**. Use a Neon pooled connection string and a unique stable auth secret of at least 32 bytes for each environment. Do not copy production credentials into Preview. Add `GOOGLE_WEB_CLIENT_ID` if Google sign-in is enabled.
-3. Keep `www.techup.rw` assigned to the Production environment. The API will also be served from that origin under `/api`; no API subdomain or CORS setup is required.
+3. Keep `www.techup.rw` and `techup.rw` assigned to the Production environment. The API will also be served from those origins under `/api`; no API subdomain or CORS setup is required.
 4. Configure the GitHub Actions `staging` and `production` environments with:
    - `DATABASE_URL`: the matching Neon connection string, used by Drizzle migrations.
    - `VERCEL_TOKEN`: a token authorized to deploy the Vercel project.
    - `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`: values from the linked project's `.vercel/project.json`.
 5. Protect `main` with reviewed pull requests and require approval for the GitHub `production` environment before production migrations/deployment.
 
-Pushes to `develop` run tests, build a Vercel Preview, apply migrations to the staging Neon database, then deploy the static site and API functions. A reviewed merge into `main` runs the same sequence against production. A failed test or migration stops deployment.
+Pushes to `develop` run tests, build a Vercel Preview, apply migrations to the staging Neon database, then deploy the static site and API functions. A push to `main` runs tests, applies migrations to the production Neon database, then creates a staged Vercel Production deployment without assigning production domains. Verify that deployment using its unique deployment URL. When it is approved, promote it from the Vercel Deployments page; promotion assigns the Production domains without rebuilding. A failed test or migration stops deployment.
+
+To stage production deployments, disable **Auto-assign Custom Production Domains** in the Vercel project's **Settings → Environments → Production → Branch Tracking**. The GitHub Actions production deploy also uses `--skip-domain` to avoid assigning domains automatically. Test the deployment-specific generated URL shown on the Vercel deployment details page; do not rely on `tech-up-gamma.vercel.app` as a separate staging alias. Promoting a staged Production deployment uses Production environment variables and the production database, so this is a production smoke test—not a safe place for destructive test data.
 
 ## API behavior and limits
 
