@@ -10,7 +10,7 @@ The Expo Router web app and Express API deploy together to the existing Vercel p
 
 For staged production deployments, disable **Auto-assign Custom Production Domains** in **Project → Settings → Environments → Production → Branch Tracking**. Keep the production domains assigned to Production. The staged deployment uses Production environment variables and the production database, so use it only for safe smoke tests.
 
-## One-time setup
+Pushes to `develop` run tests, build a Vercel Preview, apply migrations to the staging Neon database, then deploy the static site and API functions. A push to `main` runs tests, applies migrations to the production Neon database, then creates a staged Vercel Production deployment without assigning production domains. Verify that deployment using its unique deployment URL. When it is approved, promote it from the Vercel Deployments page; promotion assigns the Production domains without rebuilding. A failed test or migration stops deployment.
 
 1. In Vercel, use the existing `tech-up-gamma` project with the repository root as its Root Directory, Framework Preset **Other**, build command `npm run web:build`, and output directory `dist`.
 2. Set `DATABASE_URL` and `AUTH_TOKEN_SECRET` for both **Preview** and **Production** in Vercel. Use the matching Neon database URL and a stable, unique auth secret of at least 32 bytes per environment. Set `GOOGLE_WEB_CLIENT_ID` if browser Google sign-in is enabled.

@@ -1,1 +1,1 @@
-ALTER TABLE "repair_requests" ADD COLUMN "customer_phone" text;
+ALTER TABLE "repair_requests" ADD COLUMN IF NOT EXISTS "customer_phone" text;

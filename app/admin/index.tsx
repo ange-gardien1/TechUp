@@ -655,7 +655,7 @@ export default function AdminScreen() {
         {activeAdminTab === 'review' && dashboard ? (
           <>
             <View className="mt-6 px-5">
-              <Text className="mb-4 text-lg font-bold text-white">Workforce overview</Text>
+              <Text className="mb-4 text-lg font-bold text-white">Workforce overview overview</Text>
               <View className="flex-row flex-wrap justify-between">
                 {[
                   { label: 'Customers', value: dashboard.customerCount, tint: 'text-sky-300', bg: 'bg-sky-500/10', icon: Users },
