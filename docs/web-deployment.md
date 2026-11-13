@@ -21,7 +21,7 @@ For staged production deployments, disable **Auto-assign Custom Production Domai
    - `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`: values from the linked Vercel project's `.vercel/project.json`.
 5. Disable Vercel's automatic Git deployments if using this workflow, so deployment only occurs after tests and migrations. Require reviews for merges to `main` and optionally require approval for the GitHub `production` environment.
 
-The workflow does not require a Render deploy hook or a separate API base URL. Browser API requests use the same Vercel origin. Set database and auth secrets in Vercel's environment settings as well as the matching GitHub Actions environment; GitHub secrets used for migrations are not automatically available to Vercel Functions.
+The workflow does not require a Render deploy hook or a separate API base URL. Production and Preview browser clients use their Vercel origin with the `/api` prefix, matching the Vercel Function rewrites. Set database and auth secrets in Vercel's environment settings as well as the matching GitHub Actions environment; GitHub secrets used for migrations are not automatically available to Vercel Functions.
 
 ## API behavior and limits
 
