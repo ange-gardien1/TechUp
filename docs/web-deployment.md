@@ -11,7 +11,7 @@ The generated site is in `dist/`. Vercel serves it using [`vercel.json`](../verc
 
 ## Environments
 
-- Pushes to `develop` run tests, build a Vercel Preview, apply Drizzle migrations to the **staging** Neon database, then deploy the staging API to Render and the web app to Vercel.
+- Pushes to `dev` run tests, build a Vercel Preview, apply Drizzle migrations to the **staging** Neon database, then deploy the staging API to Render and the web app to Vercel.
 - Merging a reviewed pull request into `main` runs these steps against the **production** Neon database and deploys production. Configure GitHub branch protection to require pull requests on `main`; add a required reviewer to the `production` GitHub Environment to gate production migrations and deployment.
 - Staging and production each have their own `DATABASE_URL` and `AUTH_TOKEN_SECRET`. Do not point both environments at the same database. Keep real customer data out of staging; Neon branches can include a copy of their parent branch's data.
 - If a migration fails, the workflow does not trigger the Render API or Vercel deployments.
@@ -19,7 +19,7 @@ The generated site is in `dist/`. Vercel serves it using [`vercel.json`](../verc
 ## One-time setup
 
 1. Create separate Neon branches/databases for staging and production. Use each environment's direct PostgreSQL connection string for migrations and ensure staging has no sensitive production data.
-2. Push this configuration to `main` and `develop`. Import `render.yaml` as a Blueprint in Render. Set a distinct `DATABASE_URL` and stable `AUTH_TOKEN_SECRET` for each API service in Render's environment settings. Generate each secret with a password manager; do not commit or share it.
+2. Push this configuration to `main` and `dev`. Import `render.yaml` as a Blueprint in Render. Set a distinct `DATABASE_URL` and stable `AUTH_TOKEN_SECRET` for each API service in Render's environment settings. Generate each secret with a password manager; do not commit or share it.
 3. Create a Vercel project for this repository. Set the framework preset to **Other**, leave the Root Directory as the repository root, and disable Vercel automatic Git deployments because the workflow deploys only after migrations. Assign `www.techup.rw` to the Production environment. Use the exact DNS records Vercel shows for the domain; do not guess DNS targets. Add the apex `techup.rw` too only if you want it to redirect to `www.techup.rw`.
 4. Create a deploy hook for each Render API service. In GitHub repository settings, create `staging` and `production` Actions Environments, and add these secrets to each:
    - `DATABASE_URL`: the matching Neon connection string.
@@ -28,7 +28,7 @@ The generated site is in `dist/`. Vercel serves it using [`vercel.json`](../verc
    - `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`: the values from the linked Vercel project's `.vercel/project.json`.
    Also add the Actions Environment variable `EXPO_PUBLIC_API_BASE_URL`: the staging API's HTTPS origin in `staging`, and the production API's HTTPS origin in `production`.
 5. Configure `main` branch protection so production changes arrive through reviewed pull requests. In GitHub's `production` Environment settings, require a reviewer so production migrations and deployments wait for approval.
-6. Push to `develop`. Confirm the staging website and API work before merging future changes to `main`.
+6. Push to `dev`. Confirm the staging website and API work before merging changes from `dev` into `main`; merging updates `main` and triggers the production deployment.
 
 The Render Blueprint uses the free instance plan to avoid choosing a paid plan without your approval. Free API services can spin down when idle; select an appropriate paid Render plan before relying on production for always-on availability.
 
