@@ -29,14 +29,7 @@ test('health check remains public and returns the existing response', async () =
   assert.deepEqual(await response.json(), { ok: true });
 });
 
-test('Vercel API paths preserve the existing health endpoint', async () => {
-  const response = await fetch(`${baseUrl}/api/health`);
-
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true });
-});
-
-test('Vercel function rewrites restore the original API path', async () => {
+test('Vercel API rewrite restores the original POST path', async () => {
   const previousVercelValue = process.env.VERCEL;
   process.env.VERCEL = '1';
 

@@ -636,7 +636,7 @@ export default function AdminScreen() {
                   <Text className="text-sm font-bold text-amber-100">{dashboard.pendingDisputes} payment dispute{dashboard.pendingDisputes === 1 ? '' : 's'} need attention</Text>
                   <Text className="mt-1 text-xs leading-5 text-slate-300">Review the dispute queue before processing related payments.</Text>
                   <Pressable onPress={() => setActiveAdminTab('payments')} className="mt-3 self-start rounded-lg bg-amber-400/15 px-3 py-2">
-                    <Text className="text-xs font-bold text-amber-100">View payments</Text>
+                    <Text className="text-xs font-bold text-amber-100">View payments in Rwandan Franc</Text>
                   </Pressable>
                 </View>
               ) : null}

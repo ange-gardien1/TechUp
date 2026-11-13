@@ -3,7 +3,7 @@ name: Deploy TeckUP
 on:
   push:
     branches:
-      - develop
+      - dev
       - main
   workflow_dispatch:
 
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref_name == 'develop' || github.ref_name == 'main'
+    if: github.ref_name == 'dev' || github.ref_name == 'main'
     runs-on: ubuntu-latest
     environment:
       name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
@@ -41,7 +41,7 @@ jobs:
       - name: Run tests
         run: npm test
         env:
-          DATABASE_URL: postgresql://test:test@127.0.0.1:5432/teckup_test
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/teckup_test
 
       - name: Validate deployment secrets
         shell: bash
