@@ -246,7 +246,7 @@ function PerformanceTrend({ samples }: { samples: DashboardLoadDiagnostics[] }) 
           <Gauge size={20} color="#67e8f9" />
           <Text className="mt-3 text-sm font-semibold text-white">No saved load samples</Text>
           <Text className="mt-1 max-w-[280px] text-center text-[11px] leading-5 text-slate-400">
-            The trend will appear after a dashboard request is measured. No historical samples are generated.
+            The trend will appear after a dashboard request is measured. No historical samples are generated for you.
           </Text>
         </View>
       )}
