@@ -29,6 +29,28 @@ test('health check remains public and returns the existing response', async () =
   assert.deepEqual(await response.json(), { ok: true });
 });
 
+test('Vercel API rewrite restores the original POST path', async () => {
+  const previousVercelValue = process.env.VERCEL;
+  process.env.VERCEL = '1';
+
+  try {
+    const response = await fetch(`${baseUrl}/api/index?__teckup_path=auth/google`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'A Google identity token is required.' });
+  } finally {
+    if (previousVercelValue === undefined) {
+      delete process.env.VERCEL;
+    } else {
+      process.env.VERCEL = previousVercelValue;
+    }
+  }
+});
+
 test('protected routes reject missing bearer tokens before database access', async () => {
   const response = await fetch(`${baseUrl}/repair-requests`);
 

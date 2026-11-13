@@ -1,54 +1,46 @@
-# Staging and production deployment
+# Vercel web and API deployment
 
-The browser app uses the same Expo Router screens and API as the mobile app. Build the static web client locally with:
+The Expo Router web app and Express API deploy together to the existing Vercel project. Expo exports the static web app to `dist/`; the root `api/` handlers expose the Express app as Vercel Functions under `/api`. Vercel does not run `npm run server` as a separate always-on process.
 
-```sh
-npm ci
-npm run web:build
-```
+## Branch deployment flow
 
-The generated site is in `dist/`. Vercel serves it using [`vercel.json`](../vercel.json), including Expo Router fallback rewrites. Render hosts the Express API using [`render.yaml`](../render.yaml).
+- Pushes to `dev` run tests, apply Drizzle migrations to the staging database, then deploy the web app and API as a Vercel Preview.
+- Merging `dev` into `main` runs tests, applies migrations to the production database, then creates a staged Vercel Production deployment without changing the production domains. Test the deployment-specific URL shown in Vercel. When approved, promote that deployment from the Vercel Deployments page.
+- If tests or migrations fail, the Vercel deployment does not run.
 
-## Environments
-
-- Pushes to `dev` run tests, build a Vercel Preview, apply Drizzle migrations to the **staging** Neon database, then deploy the staging API to Render and the web app to Vercel.
-- Merging a reviewed pull request into `main` runs these steps against the **production** Neon database and deploys production. Configure GitHub branch protection to require pull requests on `main`; add a required reviewer to the `production` GitHub Environment to gate production migrations and deployment.
-- Staging and production each have their own `DATABASE_URL` and `AUTH_TOKEN_SECRET`. Do not point both environments at the same database. Keep real customer data out of staging; Neon branches can include a copy of their parent branch's data.
-- If a migration fails, the workflow does not trigger the Render API or Vercel deployments.
+For staged production deployments, disable **Auto-assign Custom Production Domains** in **Project → Settings → Environments → Production → Branch Tracking**. Keep the production domains assigned to Production. The staged deployment uses Production environment variables and the production database, so use it only for safe smoke tests.
 
 ## One-time setup
 
-1. Create separate Neon branches/databases for staging and production. Use each environment's direct PostgreSQL connection string for migrations and ensure staging has no sensitive production data.
-2. Push this configuration to `main` and `dev`. Import `render.yaml` as a Blueprint in Render. Set a distinct `DATABASE_URL` and stable `AUTH_TOKEN_SECRET` for each API service in Render's environment settings. Generate each secret with a password manager; do not commit or share it.
-3. Create a Vercel project for this repository. Set the framework preset to **Other**, leave the Root Directory as the repository root, and disable Vercel automatic Git deployments because the workflow deploys only after migrations. Assign `www.techup.rw` to the Production environment. Use the exact DNS records Vercel shows for the domain; do not guess DNS targets. Add the apex `techup.rw` too only if you want it to redirect to `www.techup.rw`.
-4. Create a deploy hook for each Render API service. In GitHub repository settings, create `staging` and `production` Actions Environments, and add these secrets to each:
-   - `DATABASE_URL`: the matching Neon connection string.
-   - `RENDER_API_DEPLOY_HOOK`: deploy hook URL for that environment's Render API.
-   - `VERCEL_TOKEN`: a Vercel access token allowed to deploy this project.
-   - `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`: the values from the linked Vercel project's `.vercel/project.json`.
-   Also add the Actions Environment variable `EXPO_PUBLIC_API_BASE_URL`: the staging API's HTTPS origin in `staging`, and the production API's HTTPS origin in `production`.
-5. Configure `main` branch protection so production changes arrive through reviewed pull requests. In GitHub's `production` Environment settings, require a reviewer so production migrations and deployments wait for approval.
-6. Push to `dev`. Confirm the staging website and API work before merging changes from `dev` into `main`; merging updates `main` and triggers the production deployment.
+1. In Vercel, use the existing `tech-up-gamma` project with the repository root as its Root Directory, Framework Preset **Other**, build command `npm run web:build`, and output directory `dist`.
+2. Set `DATABASE_URL` and `AUTH_TOKEN_SECRET` for both **Preview** and **Production** in Vercel. Use the matching Neon database URL and a stable, unique auth secret of at least 32 bytes per environment. Set `GOOGLE_WEB_CLIENT_ID` if browser Google sign-in is enabled.
+3. Assign `www.techup.rw` and, if desired, `techup.rw` to the Production environment. Use the exact DNS records Vercel displays.
+4. Configure GitHub Actions environments named `staging` and `production`. Add these secrets to each environment:
+   - `DATABASE_URL`: the matching Neon connection string, used by Drizzle migrations.
+   - `VERCEL_TOKEN`: an access token allowed to deploy the Vercel project.
+   - `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`: values from the linked Vercel project's `.vercel/project.json`.
+5. Disable Vercel's automatic Git deployments if using this workflow, so deployment only occurs after tests and migrations. Require reviews for merges to `main` and optionally require approval for the GitHub `production` environment.
 
-The Render Blueprint uses the free instance plan to avoid choosing a paid plan without your approval. Free API services can spin down when idle; select an appropriate paid Render plan before relying on production for always-on availability.
+The workflow does not require a Render deploy hook or a separate API base URL. Browser API requests use the same Vercel origin. Set database and auth secrets in Vercel's environment settings as well as the matching GitHub Actions environment; GitHub secrets used for migrations are not automatically available to Vercel Functions.
 
-## Configure the web client
+## API behavior and limits
 
-The workflow passes `EXPO_PUBLIC_API_BASE_URL` from the matching GitHub Actions Environment during the Vercel build: staging previews use the staging API, and production uses the production API. It must be an HTTPS origin without a trailing slash. This value is embedded in the public JavaScript bundle, so it must be a URL, never a secret. Production web builds never fall back to localhost.
+- Vercel routes `/api` and `/api/*` to the Express function before applying the Expo SPA fallback. Existing API endpoints, including `GET /api/health` and `POST /api/auth/login`, continue to be handled by the Express app.
+- Vercel Functions are request-based serverless handlers. Keep the local `npm run server` command for development only.
+- Vercel limits function request bodies to 4.5 MB. JSON bodies are limited to 4 MB on Vercel; larger image uploads need direct object-storage uploads rather than passing base64 data through the function.
+- Keep secrets out of source control and public `EXPO_PUBLIC_` variables. Do not seed production data.
 
-For browser Google sign-in, also set `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in the corresponding Vercel environments. Add each deployed website origin to the authorized origins for that OAuth client. See [Google authentication](./google-authentication.md) for the corresponding server setting.
+## Database migrations
 
-## API configuration
+Use separate Neon databases/branches for staging and production. Keep staging data separate from sensitive production data. The workflow applies `npm run db:migrate` against the database URL in the matching GitHub Actions environment before deploying.
 
-- `DATABASE_URL` for the environment's PostgreSQL database.
-- `AUTH_TOKEN_SECRET` with a stable random value of at least 32 bytes, unique per environment.
-- `GOOGLE_WEB_CLIENT_ID` if Google sign-in is enabled.
-- `PORT`, which Render provides.
+## Local development
 
-The GitHub Actions workflow runs tests, pulls Vercel settings, builds the web app, and applies `npm run db:migrate` against the environment-specific database. Only after migrations succeed does it trigger the Render API and deploy the prebuilt site to Vercel. Add `GOOGLE_WEB_CLIENT_ID` to the corresponding Render API service and `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` to Vercel if browser Google sign-in is enabled; authorize `https://www.techup.rw` in Google Cloud.
+Run the API and web app separately:
 
-Keep database credentials and server-only secrets in Render's environment settings and GitHub Actions Environment secrets, never in the web build environment or source control. Do not use the development seed command with production data.
+```sh
+npm run server
+npm run web
+```
 
-## Local web development
-
-Set `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:4000` in `.env.local`, start the API with `npm run server`, and run the web client with `npm run web`.
+Set `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:4000` in `.env.local` for local browser development. Production and Preview web deployments use their own Vercel origin for API requests.
