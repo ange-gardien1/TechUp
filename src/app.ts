@@ -10,6 +10,15 @@ const app = express();
 const serverStartedAt = Date.now();
 
 app.use((req, _res, next) => {
+  if (process.env.VERCEL) {
+    const requestUrl = new URL(req.url, 'http://localhost');
+    const vercelApiPath = requestUrl.searchParams.get('__teckup_path');
+    if (vercelApiPath !== null) {
+      requestUrl.searchParams.delete('__teckup_path');
+      req.url = `/api${vercelApiPath ? `/${vercelApiPath}` : ''}${requestUrl.search}`;
+    }
+  }
+
   if (req.url === '/api' || req.url.startsWith('/api/') || req.url.startsWith('/api?')) {
     const apiPath = req.url.slice('/api'.length);
     req.url = apiPath.startsWith('?') ? `/${apiPath}` : apiPath || '/';

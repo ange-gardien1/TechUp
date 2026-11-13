@@ -17,7 +17,7 @@ Pushes to `develop` run tests, build a Vercel Preview, apply migrations to the s
 
 ## API behavior and limits
 
-- The Vercel function routes `/api` and `/api/*` to the existing Express app. The web client uses the same Vercel origin for API requests; mobile clients can continue using `EXPO_PUBLIC_API_BASE_URL` or their existing development URL.
+- Vercel routes `/api` and `/api/*` to the existing Express function before applying the Expo SPA fallback. The rewrite preserves the original API path for Express, so health checks and existing GET/POST endpoints keep their routes. The web client uses the same Vercel origin for API requests; mobile clients can continue using `EXPO_PUBLIC_API_BASE_URL` or their existing development URL.
 - Vercel Functions are request-based serverless processes, not a continuously running Express server. Do not use `npm run server` as the Vercel start command.
 - Vercel limits function request bodies to 4.5 MB. The app currently sends repair photos as base64 JSON, so the serverless deployment accepts JSON bodies up to 4 MB to stay within that platform limit. Larger image uploads need direct object-storage uploads rather than passing the image through the function.
 - Keep secrets in Vercel environment settings and GitHub Actions environment secrets, not in source control or public `EXPO_PUBLIC_` variables. Do not seed production data.
