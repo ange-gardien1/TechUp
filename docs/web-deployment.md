@@ -16,7 +16,7 @@ The Expo app config maps Vercel's deployment environment to the public, non-secr
 
 1. In Vercel, use the existing `tech-up-gamma` project with the repository root as its Root Directory, Framework Preset **Other**, build command `npm run web:build`, and output directory `dist`.
 2. Set `DATABASE_URL` and `AUTH_TOKEN_SECRET` for both **Preview** and **Production** in Vercel. Use the matching Neon database URL and a stable, unique auth secret of at least 32 bytes per environment. Set `GOOGLE_CLIENT_ID` if browser Google sign-in is enabled; the browser reads this public ID from the API, while the client secret is not used.
-   - For email notifications, set `GMAIL_SMTP_USER=techuprwanda@gmail.com`, `GMAIL_SMTP_APP_PASSWORD` to an App Password created for that Google account, and a unique `CRON_SECRET` of at least 32 bytes in both environments. Keep these values in Vercel environment variables and local `.env.local`; never expose them as `EXPO_PUBLIC_` variables. The Gmail account must have 2-Step Verification enabled and App Passwords available.
+   - For email notifications, set `GMAIL_SMTP_USER=techuprwanda@gmail.com` and `GMAIL_SMTP_APP_PASSWORD` to an App Password created for that Google account in both environments. Keep these values in Vercel environment variables and local `.env.local`; never expose them as `EXPO_PUBLIC_` variables. The Gmail account must have 2-Step Verification enabled and App Passwords available. Configure `CRON_SECRET` only if you intend to invoke the protected email retry endpoint manually.
 3. Assign `www.techup.rw` and, if desired, `techup.rw` to the Production environment. Use the exact DNS records Vercel displays.
 4. Configure GitHub Actions environments named `staging` and `production`. Add these secrets to each environment:
    - `DATABASE_URL`: the matching Neon connection string, used by Drizzle migrations.
@@ -32,7 +32,7 @@ The workflow does not require a Render deploy hook or a separate API base URL. P
 - Vercel Functions are request-based serverless handlers. Keep the local `npm run server` command for development only.
 - Vercel limits function request bodies to 4.5 MB. JSON bodies are limited to 4 MB on Vercel; larger image uploads need direct object-storage uploads rather than passing base64 data through the function.
 - Keep secrets out of source control and public `EXPO_PUBLIC_` variables. Do not seed production data.
-- Every new in-app notification attempts email delivery immediately after its database transaction commits. Vercel calls `/api/notifications/email-dispatch` every minute as a retry/recovery fallback; the endpoint drains a small batch from the database-backed email outbox. Email credentials are required for delivery but not for creating or viewing in-app notifications. Gmail SMTP has account sending limits, so use a separately verified transactional sender if notification volume grows beyond those limits.
+- Every new in-app notification attempts email delivery immediately after its database transaction commits. This project does not configure a Vercel Cron Job; if an immediate email attempt fails, the email stays in the database outbox and can be retried by manually calling the protected `/api/notifications/email-dispatch` endpoint. Email credentials are required for delivery but not for creating or viewing in-app notifications. Gmail SMTP has account sending limits, so use a separately verified transactional sender if notification volume grows beyond those limits.
 
 ## Database migrations
 
