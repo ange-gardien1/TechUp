@@ -18,6 +18,7 @@ import {
 import {
   Image,
   LinearGradient,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -194,27 +195,34 @@ export default function HomeScreen() {
   }
 
   return (
-    <View className="flex-1 w-full" style={{ backgroundColor: theme.page }}>
+    <View nativeID="home-page" className="flex-1 w-full" style={{ backgroundColor: theme.page }}>
       <View className="flex-1 w-full" style={{ backgroundColor: theme.page }}>
         <ScrollView
           nativeID="app-content-scroll-home"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
         >
-        <View className="app-home-content" style={{ width: "100%", alignSelf: "center" }}>
+        <View nativeID="home-content" className="app-home-content" style={{ width: "100%", alignSelf: "center" }}>
         {/* ========================================================= */}
         {/* HERO */}
         {/* ========================================================= */}
 
-        <View className="px-4">
+        <View className="home-hero-wrap px-4">
           <LinearGradient
+            nativeID="home-hero"
             colors={theme.heroColors}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={{
               borderRadius: 30,
               overflow: "hidden",
-              minHeight: width >= 1024 ? 520 : width < 390 ? 440 : 430,
+              minHeight: Platform.OS === "web"
+                ? undefined
+                : width >= 1024
+                  ? 520
+                  : width < 390
+                    ? 440
+                    : 430,
             }}
           >
             {/* Quiet brand mark behind the technician */}
@@ -256,9 +264,13 @@ export default function HomeScreen() {
               style={{ position: "absolute", top: 0, right: 0, width: "82%", height: 105, pointerEvents: "none" }}
             />
 
-            <View className="px-6 pt-6 pb-6" style={{ maxWidth: width < 390 ? 300 : 560 }}>
+            <View
+              nativeID="home-hero-content"
+              className="px-6 pt-6 pb-6"
+              style={{ maxWidth: Platform.OS === "web" ? undefined : width < 390 ? 300 : 560 }}
+            >
               {/* Badge */}
-              <View className="self-start flex-row items-center rounded-full border border-white/15 px-4 py-2" style={{ backgroundColor: "rgba(255,255,255,0.1)" }}>
+              <View nativeID="home-hero-badge" className="self-start flex-row items-center rounded-full border border-white/15 px-4 py-2" style={{ backgroundColor: "rgba(255,255,255,0.1)" }}>
                 <Wrench size={15} color="#67E8F9" />
 
                 <Text className="ml-2 font-bold text-sm text-[#E7F5FF]">
@@ -268,12 +280,13 @@ export default function HomeScreen() {
 
               {/* Heading */}
               <Text
+                nativeID="home-hero-title"
                 className="mt-5 font-black"
                 style={{
                   color: "#FFFFFF",
-                  fontSize: width < 390 ? 34 : 38,
-                  lineHeight: width < 390 ? 39 : 43,
-                  maxWidth: width < 390 ? 255 : 320,
+                  fontSize: Platform.OS === "web" ? undefined : width < 390 ? 34 : 38,
+                  lineHeight: Platform.OS === "web" ? undefined : width < 390 ? 39 : 43,
+                  maxWidth: Platform.OS === "web" ? undefined : width < 390 ? 255 : 320,
                 }}
               >
                 Your Devices.{"\n"}
@@ -284,8 +297,12 @@ export default function HomeScreen() {
 
               {/* Description */}
               <Text
+                nativeID="home-hero-description"
                 className="mt-4 text-base leading-6"
-                style={{ color: "#CBD8F0", maxWidth: width < 390 ? 240 : 285 }}
+                style={{
+                  color: "#CBD8F0",
+                  maxWidth: Platform.OS === "web" ? undefined : width < 390 ? 240 : 285,
+                }}
               >
                 Request a repair or maintenance service and
                 our technician comes directly to your location.
@@ -343,9 +360,17 @@ export default function HomeScreen() {
         {/* SERVICES */}
         {/* ========================================================= */}
 
-        <View className="mt-7">
+        <View nativeID="home-services-section" className="mt-7">
           <View className="px-5 flex-row items-center justify-between">
-            <Text className="font-black" style={{ color: theme.text, fontSize: width < 390 ? 19 : 22, flexShrink: 1 }}>
+            <Text
+              nativeID="home-services-title"
+              className="font-black"
+              style={{
+                color: theme.text,
+                flexShrink: 1,
+                fontSize: Platform.OS === "web" ? undefined : width < 390 ? 19 : 22,
+              }}
+            >
               What do you need help with?
             </Text>
 
@@ -380,7 +405,7 @@ export default function HomeScreen() {
                   asChild
                 >
                   <Pressable
-                    className="mr-3 rounded-[20px] border px-3 py-4"
+                    className="home-service-card mr-3 rounded-[20px] border px-3 py-4"
                     style={{ width: serviceCardWidth, backgroundColor: theme.surface, borderColor: theme.border }}
                   >
                     <View
@@ -395,11 +420,11 @@ export default function HomeScreen() {
                       />
                     </View>
 
-                    <Text className="mt-3 font-black" style={{ color: theme.text }}>
+                    <Text className="home-service-name mt-3 font-black" style={{ color: theme.text }}>
                       {service.title}
                     </Text>
 
-                    <Text className="mt-1 text-xs leading-4" style={{ color: theme.muted }}>
+                    <Text className="home-service-subtitle mt-1 text-xs leading-4" style={{ color: theme.muted }}>
                       {service.subtitle}
                     </Text>
                   </Pressable>
@@ -413,8 +438,8 @@ export default function HomeScreen() {
         {/* ACTIVE REQUEST */}
         {/* ========================================================= */}
 
-        <View className="mt-8 px-5">
-          <View className="rounded-[24px] border p-5" style={{ backgroundColor: theme.surface, borderColor: theme.border }}>
+        <View nativeID="home-active-section" className="mt-8 px-5">
+          <View nativeID="home-active-card" className="rounded-[24px] border p-5" style={{ backgroundColor: theme.surface, borderColor: theme.border }}>
             <View className="flex-row items-center justify-between">
               <View className="flex-row items-center">
                 <View className="h-11 w-11 items-center justify-center rounded-full" style={{ backgroundColor: theme.surfaceSoft }}>
@@ -509,9 +534,9 @@ export default function HomeScreen() {
         {/* HOW TECHUP WORKS */}
         {/* ========================================================= */}
 
-        <View className="mt-9 px-5">
+        <View nativeID="home-how-section" className="mt-9 px-5">
           <View className="flex-row items-center justify-between">
-            <Text className="text-2xl font-black" style={{ color: theme.text }}>
+            <Text nativeID="home-how-title" className="text-2xl font-black" style={{ color: theme.text }}>
               How TECHUP Works
             </Text>
 
@@ -530,54 +555,54 @@ export default function HomeScreen() {
           <View className="mt-6 flex-row justify-between">
             {/* STEP 1 */}
             <View
-              className="items-center"
-              style={{ width: "30%" }}
+              className="home-step-card items-center rounded-[20px] border px-2 py-4"
+              style={{ width: "32%", backgroundColor: theme.surface, borderColor: theme.border }}
             >
-              <View className="h-16 w-16 rounded-full bg-[#EEF4FF] items-center justify-center">
+              <View className="h-14 w-14 rounded-full bg-[#EEF4FF] items-center justify-center">
                 <Wrench size={27} color="#2563EB" />
               </View>
 
-              <Text className="mt-4 font-black text-center" style={{ color: theme.text }}>
+              <Text className="home-step-title mt-3 font-black text-center" style={{ color: theme.text }}>
                 Raise a Request
               </Text>
 
-              <Text className="mt-2 text-xs leading-4 text-center" style={{ color: theme.muted }}>
+              <Text className="home-step-description mt-2 text-xs leading-4 text-center" style={{ color: theme.muted }}>
                 Choose a service and tell us the problem
               </Text>
             </View>
 
             {/* STEP 2 */}
             <View
-              className="items-center"
-              style={{ width: "30%" }}
+              className="home-step-card items-center rounded-[20px] border px-2 py-4"
+              style={{ width: "32%", backgroundColor: theme.surface, borderColor: theme.border }}
             >
-              <View className="h-16 w-16 rounded-full bg-[#F1EDFF] items-center justify-center">
+              <View className="h-14 w-14 rounded-full bg-[#F1EDFF] items-center justify-center">
                 <MapPin size={27} color="#7C3AED" />
               </View>
 
-              <Text className="mt-4 font-black text-center" style={{ color: theme.text }}>
+              <Text className="home-step-title mt-3 font-black text-center" style={{ color: theme.text }}>
                 We Assign
               </Text>
 
-              <Text className="mt-2 text-xs leading-4 text-center" style={{ color: theme.muted }}>
+              <Text className="home-step-description mt-2 text-xs leading-4 text-center" style={{ color: theme.muted }}>
                 A nearby technician is assigned
               </Text>
             </View>
 
             {/* STEP 3 */}
             <View
-              className="items-center"
-              style={{ width: "30%" }}
+              className="home-step-card items-center rounded-[20px] border px-2 py-4"
+              style={{ width: "32%", backgroundColor: theme.surface, borderColor: theme.border }}
             >
-              <View className="h-16 w-16 rounded-full bg-[#EAFBF6] items-center justify-center">
+              <View className="h-14 w-14 rounded-full bg-[#EAFBF6] items-center justify-center">
                 <Settings size={27} color="#10B981" />
               </View>
 
-              <Text className="mt-4 font-black text-center" style={{ color: theme.text }}>
+              <Text className="home-step-title mt-3 font-black text-center" style={{ color: theme.text }}>
                 Get It Fixed
               </Text>
 
-              <Text className="mt-2 text-xs leading-4 text-center" style={{ color: theme.muted }}>
+              <Text className="home-step-description mt-2 text-xs leading-4 text-center" style={{ color: theme.muted }}>
                 Our technician comes to you
               </Text>
             </View>
@@ -588,7 +613,7 @@ export default function HomeScreen() {
         {/* PROMOTIONAL BANNER */}
         {/* ========================================================= */}
 
-        <View className="mt-9 px-4">
+        <View nativeID="home-promo-section" className="mt-9 px-4">
           <LinearGradient
             colors={isDark ? ["#07142F", "#173C9B", "#402075"] : ["#061B59", "#1749C8", "#5B21B6"]}
             start={{ x: 0, y: 0 }}
@@ -613,16 +638,25 @@ export default function HomeScreen() {
               }}
             />
 
-            <View style={{ maxWidth: width < 390 ? "59%" : 300 }}>
-              <Text className="text-white font-black" style={{ fontSize: width < 390 ? 19 : 24 }}>
+            <View nativeID="home-promo-copy" style={{ maxWidth: width < 390 ? "59%" : 300 }}>
+              <Text
+                nativeID="home-promo-title"
+                className="text-white font-black"
+                style={{ fontSize: Platform.OS === "web" ? undefined : width < 390 ? 19 : 24 }}
+              >
                 Keep Your Devices
               </Text>
 
-              <Text className="text-[#8DDCFF] font-black" style={{ fontSize: width < 390 ? 19 : 24 }}>
+              <Text
+                nativeID="home-promo-highlight"
+                className="text-[#8DDCFF] font-black"
+                style={{ fontSize: Platform.OS === "web" ? undefined : width < 390 ? 19 : 24 }}
+              >
                 Running Smoothly
               </Text>
 
               <Text
+                nativeID="home-promo-description"
                 className="mt-2 text-[#D8E5FF] text-sm leading-5"
                 style={{ maxWidth: width < 390 ? 185 : 250 }}
               >
