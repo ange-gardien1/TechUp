@@ -533,16 +533,8 @@ export default function HomeScreen() {
               className="items-center"
               style={{ width: "30%" }}
             >
-              <View className="relative">
-                <View className="h-16 w-16 rounded-full bg-[#EEF4FF] items-center justify-center">
-                  <Wrench size={27} color="#2563EB" />
-                </View>
-
-                <View className="absolute right-[-3] top-[-5] h-7 w-7 rounded-full bg-[#2563EB] items-center justify-center">
-                  <Text className="text-white font-black text-xs">
-                    1
-                  </Text>
-                </View>
+              <View className="h-16 w-16 rounded-full bg-[#EEF4FF] items-center justify-center">
+                <Wrench size={27} color="#2563EB" />
               </View>
 
               <Text className="mt-4 font-black text-center" style={{ color: theme.text }}>
@@ -559,16 +551,8 @@ export default function HomeScreen() {
               className="items-center"
               style={{ width: "30%" }}
             >
-              <View className="relative">
-                <View className="h-16 w-16 rounded-full bg-[#F1EDFF] items-center justify-center">
-                  <MapPin size={27} color="#7C3AED" />
-                </View>
-
-                <View className="absolute right-[-3] top-[-5] h-7 w-7 rounded-full bg-[#7C3AED] items-center justify-center">
-                  <Text className="text-white font-black text-xs">
-                    2
-                  </Text>
-                </View>
+              <View className="h-16 w-16 rounded-full bg-[#F1EDFF] items-center justify-center">
+                <MapPin size={27} color="#7C3AED" />
               </View>
 
               <Text className="mt-4 font-black text-center" style={{ color: theme.text }}>
@@ -585,16 +569,8 @@ export default function HomeScreen() {
               className="items-center"
               style={{ width: "30%" }}
             >
-              <View className="relative">
-                <View className="h-16 w-16 rounded-full bg-[#EAFBF6] items-center justify-center">
-                  <Settings size={27} color="#10B981" />
-                </View>
-
-                <View className="absolute right-[-3] top-[-5] h-7 w-7 rounded-full bg-[#10B981] items-center justify-center">
-                  <Text className="text-white font-black text-xs">
-                    3
-                  </Text>
-                </View>
+              <View className="h-16 w-16 rounded-full bg-[#EAFBF6] items-center justify-center">
+                <Settings size={27} color="#10B981" />
               </View>
 
               <Text className="mt-4 font-black text-center" style={{ color: theme.text }}>

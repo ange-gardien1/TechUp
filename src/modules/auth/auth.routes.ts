@@ -4,13 +4,16 @@ import { authTokenSecret, db, eq, hashPassword, issueSessionToken, sanitizeUser,
 
 const googleOAuthClient = new OAuth2Client();
 
+function getGoogleClientId() {
+  return process.env.GOOGLE_CLIENT_ID?.trim() || process.env.GOOGLE_WEB_CLIENT_ID?.trim();
+}
+
 export function registerAuthRoutes(app: Express) {
   app.post('/auth/register', async (req, res) => {
     try {
       const fullName = String(req.body?.fullName ?? '').trim();
       const email = String(req.body?.email ?? '').trim().toLowerCase();
       const password = String(req.body?.password ?? '');
-      const phone = String(req.body?.phone ?? '').trim();
       const role = 'customer';
 
       if (!fullName || !email || !password) {
@@ -26,7 +29,6 @@ export function registerAuthRoutes(app: Express) {
         fullName,
         email,
         passwordHash: await hashPassword(password),
-        phone: phone || null,
         role,
         status: 'active',
         isVerified: true,
@@ -82,15 +84,24 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
+  app.get('/auth/google/config', (_req, res) => {
+    const clientId = getGoogleClientId();
+    if (!clientId) {
+      return res.status(503).json({ error: 'Google sign-in is not configured on this server.' });
+    }
+
+    return res.json({ clientId });
+  });
+
   app.post('/auth/google', async (req, res) => {
     const idToken = typeof req.body?.idToken === 'string' ? req.body.idToken.trim() : '';
-    const webClientId = process.env.GOOGLE_WEB_CLIENT_ID?.trim();
+    const webClientId = getGoogleClientId();
 
     if (!idToken) {
       return res.status(400).json({ error: 'A Google identity token is required.' });
     }
     if (!webClientId) {
-      console.error('Google sign-in is unavailable because GOOGLE_WEB_CLIENT_ID is not configured.');
+      console.error('Google sign-in is unavailable because GOOGLE_CLIENT_ID is not configured.');
       return res.status(503).json({ error: 'Google sign-in is not configured on this server.' });
     }
 

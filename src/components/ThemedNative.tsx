@@ -60,6 +60,8 @@ const lightHexColors: Record<string, string> = {
   '#1C2D4A': '#E2E8F0',
   '#263955': '#E2E8F0',
   '#26344A': '#E2E8F0',
+  '#0B1437': '#0B1437',
+  '#64748B': '#475569',
   '#FFFFFF': '#0B1437',
   '#94A3B8': '#64748B',
 };
@@ -83,6 +85,7 @@ function lightHexColor(color: string, property: 'background' | 'border' | 'text'
 }
 
 function lightToken(token: string) {
+  if (/^bg-\[#(?:1677FF|1769F5|2563EB)\]$/i.test(token)) return token;
   if (lightClassColors[token] || lightTextColors[token]) {
     return lightClassColors[token] ?? lightTextColors[token] ?? token;
   }
@@ -170,6 +173,18 @@ function themedTextStyle(style: ComponentProps<typeof NativeText>['style'], isDa
   return next;
 }
 
+function themedTextClassName(className: string | undefined, isDark: boolean, tone: ThemeTone) {
+  const mappedClassName = lightClassName(className, isDark);
+  if (
+    isDark ||
+    tone === 'accent' ||
+    !mappedClassName?.split(/\s+/).includes('text-white')
+  ) {
+    return mappedClassName;
+  }
+  return mappedClassName.replace(/(?:^|\s)text-white(?=\s|$)/, ' text-[#0B1437]');
+}
+
 type ClassNameProp = { className?: string };
 
 export function View({ className, style, children, ...props }: ComponentProps<typeof NativeView> & ClassNameProp) {
@@ -204,13 +219,12 @@ export function Pressable({ className, style, children, ...props }: ComponentPro
 export function Text({ className, style, children, ...props }: ComponentProps<typeof NativeText> & ClassNameProp) {
   const { isDark } = useAppTheme();
   const tone = useContext(ThemeToneContext);
-  const mappedClassName = lightClassName(className, isDark);
-  const shouldUseDarkText = !isDark && tone !== 'accent' && mappedClassName?.split(/\s+/).includes('text-white');
-  const adjustedClassName = shouldUseDarkText
-    ? mappedClassName?.replace(/(?:^|\s)text-white(?=\s|$)/, ' text-[#0B1437]')
-    : mappedClassName;
   return (
-    <NativeText {...props} className={adjustedClassName} style={themedTextStyle(style, isDark, tone)}>
+    <NativeText
+      {...props}
+      className={themedTextClassName(className, isDark, tone)}
+      style={themedTextStyle(style, isDark, tone)}
+    >
       {children}
     </NativeText>
   );
@@ -223,7 +237,7 @@ export function TextInput({ className, style, placeholderTextColor, ...props }: 
   return (
     <NativeTextInput
       {...props}
-      className={lightClassName(className, isDark)}
+      className={themedTextClassName(className, isDark, tone)}
       style={themedTextStyle(style, isDark, tone)}
       placeholderTextColor={!isDark && placeholder ? lightHexColor(placeholder, 'text') : placeholderTextColor}
     />

@@ -86,7 +86,7 @@ export {
 };
 
 export const authTokenSecret = getAuthTokenSecret();
-export const TECHUP_SUPPORT_PHONE = '0782245728';
+export const TECHUP_SUPPORT_PHONE = '0780530360';
 export const eventLoopDelayMonitor = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelayMonitor.enable();
 const eventLoopDelayReset = setInterval(() => eventLoopDelayMonitor.reset(), 10_000);

@@ -183,7 +183,7 @@ export function QuoteComposerModal({
               <Text className="text-xs font-bold uppercase tracking-[0.12em] text-emerald-200">Total quotation</Text>
               <Text className="text-lg font-black text-white">RWF {(partCost + laborCost).toLocaleString()}</Text>
             </View>
-            <Text className="mt-3 text-xs text-slate-400">TechUp support: 0782245728</Text>
+            <Text className="mt-3 text-xs text-slate-400">TechUp support: 0780530360</Text>
 
             {error ? <Text accessibilityRole="alert" className="mt-3 text-sm text-rose-300">{error}</Text> : null}
 

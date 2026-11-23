@@ -101,7 +101,7 @@ export default function CustomerScreen() {
       laborCost,
       hasBreakdown: quotePreview.partCost != null && quotePreview.laborCost != null,
       total: Number(quotePreview.amount).toLocaleString(),
-      contactPhone: quotePreview.contactPhone ?? '0782245728',
+      contactPhone: quotePreview.contactPhone ?? '0780530360',
     };
   }, [quotePreview]);
 

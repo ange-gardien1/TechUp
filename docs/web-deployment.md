@@ -12,8 +12,10 @@ For staged production deployments, disable **Auto-assign Custom Production Domai
 
 Pushes to `develop` run tests, build a Vercel Preview, apply migrations to the staging Neon database, then deploy the static site and API functions. A push to `main` runs tests, applies migrations to the production Neon database, then creates a staged Vercel Production deployment without assigning production domains. Verify that deployment using its unique deployment URL. When it is approved, promote it from the Vercel Deployments page; promotion assigns the Production domains without rebuilding. A failed test or migration stops deployment.
 
+The Expo app config maps Vercel's deployment environment to the public, non-secret `EXPO_PUBLIC_APP_ENV` build marker. The gadget shop displays a Coming Soon screen only when `VERCEL_ENV=production`; Vercel Preview deployments (including staging) continue to show the in-progress catalog. Local builds use `APP_ENV` when provided, otherwise `NODE_ENV`.
+
 1. In Vercel, use the existing `tech-up-gamma` project with the repository root as its Root Directory, Framework Preset **Other**, build command `npm run web:build`, and output directory `dist`.
-2. Set `DATABASE_URL` and `AUTH_TOKEN_SECRET` for both **Preview** and **Production** in Vercel. Use the matching Neon database URL and a stable, unique auth secret of at least 32 bytes per environment. Set `GOOGLE_WEB_CLIENT_ID` if browser Google sign-in is enabled.
+2. Set `DATABASE_URL` and `AUTH_TOKEN_SECRET` for both **Preview** and **Production** in Vercel. Use the matching Neon database URL and a stable, unique auth secret of at least 32 bytes per environment. Set `GOOGLE_CLIENT_ID` if browser Google sign-in is enabled; the browser reads this public ID from the API, while the client secret is not used.
 3. Assign `www.techup.rw` and, if desired, `techup.rw` to the Production environment. Use the exact DNS records Vercel displays.
 4. Configure GitHub Actions environments named `staging` and `production`. Add these secrets to each environment:
    - `DATABASE_URL`: the matching Neon connection string, used by Drizzle migrations.
