@@ -187,15 +187,15 @@ export function AppHeader() {
   }
 
   return (
-    <View className="app-header px-5 pb-3 pt-2" style={{ backgroundColor: pageColors.page }}>
+    <View className="app-header px-4 py-1" style={{ backgroundColor: pageColors.page }}>
       <View className="app-header-row flex-row items-center justify-between">
         <Pressable
           accessibilityRole="link"
           accessibilityLabel="TECHUP home"
           onPress={() => router.replace('/')}
-          className="min-h-[72px] justify-center"
+          className="app-header-brand h-[58px] w-[58px] min-h-[58px] shrink-0 items-center justify-center"
         >
-          <BrandLogo size={82} />
+          <BrandLogo size={50} />
         </Pressable>
         <AppBottomNav variant="desktop" />
         <View className="flex-row items-center gap-2">
