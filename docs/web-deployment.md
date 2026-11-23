@@ -32,7 +32,7 @@ The workflow does not require a Render deploy hook or a separate API base URL. P
 - Vercel Functions are request-based serverless handlers. Keep the local `npm run server` command for development only.
 - Vercel limits function request bodies to 4.5 MB. JSON bodies are limited to 4 MB on Vercel; larger image uploads need direct object-storage uploads rather than passing base64 data through the function.
 - Keep secrets out of source control and public `EXPO_PUBLIC_` variables. Do not seed production data.
-- Vercel calls `/api/notifications/email-dispatch` every minute with the configured `CRON_SECRET`. The endpoint drains a small batch from the database-backed email outbox; email credentials are required for delivery but not for creating or viewing in-app notifications. Gmail SMTP has account sending limits, so use a separately verified transactional sender if notification volume grows beyond those limits.
+- Every new in-app notification attempts email delivery immediately after its database transaction commits. Vercel calls `/api/notifications/email-dispatch` every minute as a retry/recovery fallback; the endpoint drains a small batch from the database-backed email outbox. Email credentials are required for delivery but not for creating or viewing in-app notifications. Gmail SMTP has account sending limits, so use a separately verified transactional sender if notification volume grows beyond those limits.
 
 ## Database migrations
 
@@ -51,4 +51,4 @@ npm run web
 
 Set `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:4000` in `.env.local` for local browser development. Production and Preview web deployments use their own Vercel origin for API requests.
 
-For local email testing, set the Gmail SMTP variables in `.env.local` and run `npm run server`. The local API automatically checks the outbox at startup and every 30 seconds while running. `CRON_SECRET` is needed only if you manually call `GET /notifications/email-dispatch` with `Authorization: Bearer <CRON_SECRET>`.
+For local email testing, set the Gmail SMTP variables in `.env.local` and run `npm run server`. Each new notification attempts delivery immediately; a local-only worker also checks the outbox at startup and every 30 seconds while running to retry failures. `CRON_SECRET` is needed only if you manually call `GET /notifications/email-dispatch` with `Authorization: Bearer <CRON_SECRET>`.

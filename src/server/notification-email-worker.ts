@@ -9,7 +9,9 @@ const MAX_ATTEMPTS = 5;
 const RETRY_DELAY_MINUTES = [1, 5, 15, 60];
 const PROCESSING_LEASE_MINUTES = 10;
 
-async function claimPendingEmails() {
+async function claimPendingEmails(notificationIds?: number[]) {
+  if (notificationIds && notificationIds.length === 0) return [];
+
   const now = new Date();
   const staleLockBefore = new Date(now.getTime() - PROCESSING_LEASE_MINUTES * 60_000);
 
@@ -17,18 +19,23 @@ async function claimPendingEmails() {
     const candidates = await transaction
       .select({ id: notificationEmailDeliveries.id })
       .from(notificationEmailDeliveries)
-      .where(or(
-        and(
-          eq(notificationEmailDeliveries.status, 'pending'),
-          lte(notificationEmailDeliveries.nextAttemptAt, now),
+      .where(and(
+        or(
+          and(
+            eq(notificationEmailDeliveries.status, 'pending'),
+            lte(notificationEmailDeliveries.nextAttemptAt, now),
+          ),
+          and(
+            eq(notificationEmailDeliveries.status, 'processing'),
+            lt(notificationEmailDeliveries.lockedAt, staleLockBefore),
+          ),
         ),
-        and(
-          eq(notificationEmailDeliveries.status, 'processing'),
-          lt(notificationEmailDeliveries.lockedAt, staleLockBefore),
-        ),
+        ...(notificationIds
+          ? [inArray(notificationEmailDeliveries.notificationId, notificationIds)]
+          : []),
       ))
       .orderBy(asc(notificationEmailDeliveries.createdAt))
-      .limit(BATCH_SIZE)
+      .limit(notificationIds?.length ?? BATCH_SIZE)
       .for('update', { skipLocked: true });
 
     if (candidates.length === 0) return [];
@@ -55,14 +62,14 @@ function errorMessage(error: unknown) {
   return message.slice(0, 1000);
 }
 
-export async function processNotificationEmailOutbox() {
+export async function processNotificationEmailOutbox(notificationIds?: number[]) {
   const transporter = createGmailTransporter();
   let sent = 0;
   let retrying = 0;
   let failed = 0;
 
   try {
-    const claimed = await claimPendingEmails();
+    const claimed = await claimPendingEmails(notificationIds);
 
     for (const delivery of claimed) {
       let providerMessageId: string;
