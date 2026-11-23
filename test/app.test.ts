@@ -69,3 +69,30 @@ test('Google auth route is public but requires an identity token', async () => {
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { error: 'A Google identity token is required.' });
 });
+
+test('Google web configuration exposes only the configured client ID', async () => {
+  const previousClientId = process.env.GOOGLE_CLIENT_ID;
+  const previousLegacyClientId = process.env.GOOGLE_WEB_CLIENT_ID;
+  process.env.GOOGLE_CLIENT_ID = 'web-client-id.apps.googleusercontent.com';
+  delete process.env.GOOGLE_WEB_CLIENT_ID;
+
+  try {
+    const response = await fetch(`${baseUrl}/auth/google/config`);
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      clientId: 'web-client-id.apps.googleusercontent.com',
+    });
+  } finally {
+    if (previousClientId === undefined) {
+      delete process.env.GOOGLE_CLIENT_ID;
+    } else {
+      process.env.GOOGLE_CLIENT_ID = previousClientId;
+    }
+    if (previousLegacyClientId === undefined) {
+      delete process.env.GOOGLE_WEB_CLIENT_ID;
+    } else {
+      process.env.GOOGLE_WEB_CLIENT_ID = previousLegacyClientId;
+    }
+  }
+});

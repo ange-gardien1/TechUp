@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from '../ThemedNative';
+import { apiRequest } from '../../lib/api';
 
 type GoogleCredentialResponse = {
   credential?: string;
@@ -83,14 +84,41 @@ export function GoogleSignInButton({
   const containerRef = useRef<HTMLDivElement>(null);
   const onIdTokenRef = useRef(onIdToken);
   const onErrorRef = useRef(onError);
+  const [clientId, setClientId] = useState('');
+  const [configurationLoading, setConfigurationLoading] = useState(true);
   const [scriptLoading, setScriptLoading] = useState(false);
   const [scriptFailed, setScriptFailed] = useState(false);
-  const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim();
 
   useEffect(() => {
     onIdTokenRef.current = onIdToken;
     onErrorRef.current = onError;
   }, [onError, onIdToken]);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest<{ clientId: string }>('/auth/google/config')
+      .then(({ clientId: configuredClientId }) => {
+        const normalizedClientId = configuredClientId?.trim();
+        if (!normalizedClientId) {
+          throw new Error('Google sign-in is not configured on this server.');
+        }
+        if (active) setClientId(normalizedClientId);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setScriptFailed(true);
+        onErrorRef.current(
+          error instanceof Error ? error.message : 'Unable to load Google sign-in configuration.',
+        );
+      })
+      .finally(() => {
+        if (active) setConfigurationLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!clientId || disabled || scriptFailed) return;
@@ -141,9 +169,7 @@ export function GoogleSignInButton({
 
   function handleUnconfiguredPress() {
     if (!clientId) {
-      onError(
-        'Google sign-in is not configured yet. Add EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID to your app environment, then restart the app.',
-      );
+      onError('Google sign-in is not configured on this server. Set GOOGLE_CLIENT_ID, then reload.');
       return;
     }
     setScriptFailed(false);
@@ -155,13 +181,19 @@ export function GoogleSignInButton({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
-        disabled={disabled}
+        disabled={disabled || configurationLoading}
         onPress={handleUnconfiguredPress}
         className="mt-4 min-h-14 flex-row items-center justify-center rounded-2xl border border-slate-300 bg-white px-4"
-        style={{ opacity: disabled ? 0.65 : 1 }}
+        style={{ opacity: disabled || configurationLoading ? 0.65 : 1 }}
       >
-        <Text className="mr-3 text-lg font-black text-[#4285F4]">G</Text>
-        <Text className="text-sm font-bold text-slate-800">{label}</Text>
+        {configurationLoading ? (
+          <ActivityIndicator color="#334155" />
+        ) : (
+          <>
+            <Text className="mr-3 text-lg font-black text-[#4285F4]">G</Text>
+            <Text className="text-sm font-bold text-slate-800">{label}</Text>
+          </>
+        )}
       </Pressable>
     );
   }

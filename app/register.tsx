@@ -9,7 +9,6 @@ export default function RegisterScreen() {
   const { register, loginWithGoogle } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +21,6 @@ export default function RegisterScreen() {
         fullName: fullName.trim(),
         email: email.trim(),
         password,
-        phone,
       });
       router.replace('/');
     } catch (err) {
@@ -94,15 +92,6 @@ export default function RegisterScreen() {
             placeholder="Email address"
             autoCapitalize="none"
             keyboardType="email-address"
-            placeholderTextColor="#94A3B8"
-            className="mt-4 rounded-2xl border border-slate-700 bg-[#0F172A] px-4 py-3 text-base text-white"
-          />
-
-          <TextInput
-            value={phone}
-            onChangeText={setPhone}
-            placeholder="Phone number"
-            keyboardType="phone-pad"
             placeholderTextColor="#94A3B8"
             className="mt-4 rounded-2xl border border-slate-700 bg-[#0F172A] px-4 py-3 text-base text-white"
           />

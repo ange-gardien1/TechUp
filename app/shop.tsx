@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, PackageOpen, RefreshCw, Smartphone } from 'lucide-react-native';
 import { ActivityIndicator, Image, Pressable, ScrollView, Text, useWindowDimensions, View } from '../src/components/ThemedNative';
+import { ComingSoonScreen } from '../src/components/ComingSoonScreen';
 import { apiRequest } from '../src/lib/api';
+import { isProductionDeployment } from '../src/lib/deployment';
 import { useAppTheme } from '../src/providers/AppThemeProvider';
 
 type Product = {
@@ -20,7 +22,7 @@ function formatPrice(price: number) {
   return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export default function ShopScreen() {
+function ShopCatalogScreen() {
   const { width } = useWindowDimensions();
   const { isDark } = useAppTheme();
   const [products, setProducts] = useState<Product[]>([]);
@@ -139,4 +141,10 @@ export default function ShopScreen() {
       </ScrollView>
     </View>
   );
+}
+
+export default function ShopScreen() {
+  return isProductionDeployment
+    ? <ComingSoonScreen featureName="TechUp gadgets" />
+    : <ShopCatalogScreen />;
 }

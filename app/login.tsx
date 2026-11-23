@@ -1,28 +1,29 @@
 import { Link, useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Image,
-  LinearGradient,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
-} from '../src/components/ThemedNative';
-import { Eye, EyeOff, LockKeyhole, Mail, MoveRight } from 'lucide-react-native';
-import { useAuth } from '../src/providers/AuthProvider';
+} from 'react-native';
+import { Activity, ArrowRight, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, Wrench } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BrandLogo } from '../src/components/BrandLogo';
 import { GoogleSignInButton } from '../src/components/auth/GoogleSignInButton';
+import { NativeLoginScreen } from '../src/components/auth/NativeLoginScreen';
+import { useAuth } from '../src/providers/AuthProvider';
 
-export default function LoginScreen() {
+const isWeb = Platform.OS === 'web';
+
+function ResponsiveLoginScreen() {
   const router = useRouter();
-  const { login, loginWithGoogle, user, sessionExpired } = useAuth();
-  const { width, height } = useWindowDimensions();
+  const { login, loginWithGoogle, sessionExpired } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -30,8 +31,6 @@ export default function LoginScreen() {
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const buttonScale = useRef(new Animated.Value(1)).current;
-  const compact = height < 760;
 
   async function handleLogin() {
     try {
@@ -59,284 +58,271 @@ export default function LoginScreen() {
     }
   }
 
-  function animateButton(toValue: number) {
-    Animated.spring(buttonScale, {
-      toValue,
-      speed: 30,
-      bounciness: 4,
-      useNativeDriver: true,
-    }).start();
-  }
-
   return (
-    <View className="flex-1 w-full" style={{ backgroundColor: '#040B18' }}>
-      <View className="flex-1 w-full" style={{ backgroundColor: '#07142F' }}>
-        <KeyboardAvoidingView
-          className="flex-1"
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <View
+      nativeID="login-page"
+      style={isWeb ? undefined : { flex: 1, backgroundColor: '#050B18' }}
+    >
+      <KeyboardAvoidingView
+        nativeID="login-keyboard"
+        style={isWeb ? undefined : { flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          nativeID="login-scroll"
+          style={isWeb ? undefined : { flex: 1 }}
+          contentContainerStyle={isWeb ? undefined : { flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <ScrollView
-            nativeID="app-content-scroll-login"
-            contentContainerStyle={{
-              flexGrow: 1,
-              paddingHorizontal: 22,
-              paddingTop: compact ? 12 : 20,
-              paddingBottom: 24,
-              width: '100%',
-              maxWidth: width >= 1024 ? 520 : width >= 768 ? 640 : undefined,
-              alignSelf: 'center',
-            }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+          <View
+            nativeID="login-layout"
+            style={isWeb ? undefined : { flex: 1, paddingHorizontal: 24, paddingVertical: 28 }}
           >
-            <View className={compact ? 'mt-5' : 'mt-7'}>
-              <LinearGradient
-                colors={['#1677FF', '#00C6FF', '#7C3AED']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={{ width: 38, height: 4, borderRadius: 3, marginBottom: 14 }}
-              />
-              <Text
-                className="font-black text-white"
-                style={{ fontSize: width < 360 ? 28 : 31, letterSpacing: -0.6 }}
-              >
-                Welcome back 👋
-              </Text>
-              <Text className="mt-1 text-base text-slate-400">
-                Sign in to continue
-              </Text>
-              {sessionExpired ? (
-                <Text
-                  accessibilityRole="alert"
-                  className="mt-4 rounded-xl border px-4 py-3 text-sm font-semibold"
-                  style={{
-                    color: '#FCA5A5',
-                    backgroundColor: '#7F1D1D33',
-                    borderColor: '#7F1D1D',
-                  }}
-                >
-                  Your session has expired. Please sign in again to continue.
+            <View
+              nativeID="login-hero"
+              style={isWeb ? undefined : { flex: 1, justifyContent: 'center' }}
+            >
+              <View nativeID="login-hero-brand" style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <BrandLogo size={42} />
+                <Text nativeID="login-hero-brand-name">TechUp</Text>
+                <View nativeID="login-brand-badge">
+                  <Text nativeID="login-brand-badge-text">SERVICE PLATFORM</Text>
+                </View>
+              </View>
+
+              <View nativeID="login-hero-copy">
+                <Text nativeID="login-eyebrow">CUSTOMER PORTAL</Text>
+                <View nativeID="login-welcome-heading">
+                  <Text nativeID="login-welcome-title">Welcome back!</Text>
+                  <Text nativeID="login-gradient-title">TechUp!</Text>
+                </View>
+                <Text nativeID="login-description">
+                  Sign in to continue and access your requests, track progress, and more.
                 </Text>
-              ) : null}
+              </View>
+
+              <View
+                nativeID="login-illustration-wrap"
+                style={isWeb ? undefined : { width: '100%', height: 240 }}
+              >
+                <View nativeID="login-glow-blue" />
+                <View nativeID="login-glow-violet" />
+                <Image
+                  nativeID="login-illustration"
+                  source={require('../man1.png')}
+                  resizeMode="contain"
+                  accessibilityLabel="TechUp technician ready to help with device repairs"
+                  style={{ width: '100%', height: '100%' }}
+                />
+              </View>
+
+              <View nativeID="login-features">
+                <View nativeID="login-feature-requests">
+                  <View nativeID="login-feature-icon-blue"><Wrench size={17} color="#71B7FF" /></View>
+                  <Text nativeID="login-feature-text-requests">Manage your requests</Text>
+                </View>
+                <View nativeID="login-feature-progress">
+                  <View nativeID="login-feature-icon-cyan"><Activity size={17} color="#54E5E5" /></View>
+                  <Text nativeID="login-feature-text-progress">Track your progress</Text>
+                </View>
+                <View nativeID="login-feature-secure">
+                  <View nativeID="login-feature-icon-violet"><ShieldCheck size={17} color="#C4A5FF" /></View>
+                  <Text nativeID="login-feature-text-secure">Secure and private</Text>
+                </View>
+              </View>
+
+              <View nativeID="login-support">
+                <Text nativeID="login-support-caption">NEED A HAND? OUR TEAM IS HERE TO HELP.</Text>
+                <Link href="tel:0782245728" asChild>
+                  <Pressable nativeID="login-support-link" accessibilityRole="link">
+                    <Text nativeID="login-support-number">0782245728</Text>
+                    <Text nativeID="login-support-action">Contact support</Text>
+                  </Pressable>
+                </Link>
+              </View>
             </View>
 
             <View
-              accessible={false}
-              style={{
-                height: compact ? 152 : 184,
-                marginTop: compact ? -2 : 2,
-                marginBottom: compact ? 0 : 4,
-                overflow: 'visible',
-              }}
+              nativeID="login-form-column"
+              style={isWeb ? undefined : { justifyContent: 'center', paddingVertical: 12 }}
             >
-              <View
-                pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  width: 164,
-                  height: 164,
-                  borderRadius: 82,
-                  right: 26,
-                  top: 12,
-                  backgroundColor: '#1677FF',
-                  opacity: 0.13,
-                  shadowColor: '#00C6FF',
-                  shadowOpacity: 0.8,
-                  shadowRadius: 44,
-                  shadowOffset: { width: 0, height: 0 },
-                }}
-              />
-              <View
-                pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  width: 112,
-                  height: 112,
-                  borderRadius: 56,
-                  right: 10,
-                  top: 38,
-                  backgroundColor: '#7C3AED',
-                  opacity: 0.1,
-                  shadowColor: '#7C3AED',
-                  shadowOpacity: 0.8,
-                  shadowRadius: 38,
-                  shadowOffset: { width: 0, height: 0 },
-                }}
-              />
-              <Image
-                source={require('../man1.png')}
-                resizeMode="contain"
-                accessibilityLabel="TECHUP technician ready to help with device repairs"
-                style={{
-                  position: 'absolute',
-                  right: width < 380 ? -16 : -8,
-                  bottom: compact ? -22 : -28,
-                  width: Math.min(width - 18, 390),
-                  height: compact ? 202 : 242,
-                }}
-              />
-            </View>
+              <View nativeID="login-card">
+                <View nativeID="login-card-brand">
+                  <BrandLogo size={38} />
+                  <View>
+                    <Text nativeID="login-card-brand-name">TechUp</Text>
+                    <Text nativeID="login-card-brand-caption">REPAIR, REIMAGINED</Text>
+                  </View>
+                </View>
 
-            <View className="mt-3 flex-row items-center">
-              <View className="h-px flex-1 bg-slate-700" />
-              <Text className="mx-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                quick sign in
-              </Text>
-              <View className="h-px flex-1 bg-slate-700" />
-            </View>
-            <GoogleSignInButton
-              disabled={loading}
-              onIdToken={handleGoogleLogin}
-              onError={setError}
-            />
+                <View nativeID="login-form-heading">
+                  <Text nativeID="login-form-title">Sign in</Text>
+                  <Text nativeID="login-form-subtitle">Continue to your account</Text>
+                </View>
 
-            <View>
-              <Text className="mb-2 ml-1 text-[13px] font-semibold text-slate-200">Email</Text>
-              <View
-                className="h-14 flex-row items-center rounded-2xl border px-4"
-                style={{
-                  backgroundColor: '#101F3D',
-                  borderColor: emailFocused ? '#1677FF' : '#1C2D4A',
-                  shadowColor: emailFocused ? '#1677FF' : 'transparent',
-                  shadowOpacity: emailFocused ? 0.18 : 0,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 0 },
-                }}
-              >
-                <Mail size={19} color={emailFocused ? '#00C6FF' : '#94A3B8'} />
-                <TextInput
-                  value={email}
-                  onChangeText={setEmail}
-                  onFocus={() => setEmailFocused(true)}
-                  onBlur={() => setEmailFocused(false)}
-                  placeholder="Email address"
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                  autoComplete={Platform.OS === 'android' ? 'off' : 'email'}
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  returnKeyType="next"
-                  textContentType="emailAddress"
-                  className="ml-3 flex-1 text-base text-white"
-                  style={{ paddingVertical: 0 }}
-                />
-              </View>
+                {sessionExpired ? (
+                  <Text nativeID="login-session-expired" accessibilityRole="alert">
+                    Your session has expired. Please sign in again to continue.
+                  </Text>
+                ) : null}
 
-              <Text className="mb-2 ml-1 mt-4 text-[13px] font-semibold text-slate-200">Password</Text>
-              <View
-                className="h-14 flex-row items-center rounded-2xl border px-4"
-                style={{
-                  backgroundColor: '#101F3D',
-                  borderColor: passwordFocused ? '#1677FF' : '#1C2D4A',
-                  shadowColor: passwordFocused ? '#1677FF' : 'transparent',
-                  shadowOpacity: passwordFocused ? 0.18 : 0,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 0 },
-                }}
-              >
-                <LockKeyhole size={19} color={passwordFocused ? '#00C6FF' : '#94A3B8'} />
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  onFocus={() => setPasswordFocused(true)}
-                  onBlur={() => setPasswordFocused(false)}
-                  onSubmitEditing={handleLogin}
-                  placeholder="Password"
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                  autoComplete="current-password"
-                  returnKeyType="go"
-                  secureTextEntry={!showPassword}
-                  textContentType="password"
-                  className="ml-3 flex-1 text-base text-white"
-                  style={{ paddingVertical: 0 }}
-                />
+                <View nativeID="login-google">
+                  <GoogleSignInButton
+                    disabled={loading}
+                    onIdToken={handleGoogleLogin}
+                    onError={setError}
+                  />
+                </View>
+
+                <View nativeID="login-divider">
+                  <View nativeID="login-divider-line-left" />
+                  <Text nativeID="login-divider-label">OR CONTINUE WITH EMAIL</Text>
+                  <View nativeID="login-divider-line-right" />
+                </View>
+
+                <View nativeID="login-fields">
+                  <View nativeID="login-email-group">
+                    <Text nativeID="login-email-label">Email address</Text>
+                    <View nativeID="login-email-field" style={emailFocused ? { borderColor: '#4C9AFF' } : undefined}>
+                      <Mail size={18} color={emailFocused ? '#63C7FF' : '#8292AD'} />
+                      <TextInput
+                        nativeID="login-email-input"
+                        accessibilityLabel="Email address"
+                        value={email}
+                        onChangeText={(value) => {
+                          setEmail(value);
+                          setError('');
+                        }}
+                        onFocus={() => setEmailFocused(true)}
+                        onBlur={() => setEmailFocused(false)}
+                        placeholder="you@example.com"
+                        placeholderTextColor="#8292AD"
+                        autoCapitalize="none"
+                        autoComplete="email"
+                        autoCorrect={false}
+                        keyboardType="email-address"
+                        returnKeyType="next"
+                        textContentType="emailAddress"
+                      />
+                    </View>
+                  </View>
+
+                  <View nativeID="login-password-group">
+                    <Text nativeID="login-password-label">Password</Text>
+                    <View nativeID="login-password-field" style={passwordFocused ? { borderColor: '#4C9AFF' } : undefined}>
+                      <LockKeyhole size={18} color={passwordFocused ? '#63C7FF' : '#8292AD'} />
+                      <TextInput
+                        nativeID="login-password-input"
+                        accessibilityLabel="Password"
+                        value={password}
+                        onChangeText={(value) => {
+                          setPassword(value);
+                          setError('');
+                        }}
+                        onFocus={() => setPasswordFocused(true)}
+                        onBlur={() => setPasswordFocused(false)}
+                        onSubmitEditing={handleLogin}
+                        placeholder="Enter your password"
+                        placeholderTextColor="#8292AD"
+                        autoCapitalize="none"
+                        autoComplete="current-password"
+                        returnKeyType="go"
+                        secureTextEntry={!showPassword}
+                        textContentType="password"
+                      />
+                      <Pressable
+                        nativeID="login-password-toggle"
+                        accessibilityRole="button"
+                        accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                        accessibilityState={{ checked: showPassword }}
+                        onPress={() => setShowPassword((visible) => !visible)}
+                      >
+                        {showPassword
+                          ? <EyeOff size={18} color="#9AABC5" />
+                          : <Eye size={18} color="#9AABC5" />}
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+
+                <View nativeID="login-form-options">
+                  <Pressable
+                    nativeID="login-forgot"
+                    accessibilityRole="button"
+                    onPress={() =>
+                      Alert.alert(
+                        'Password recovery',
+                        'Password reset is not available yet. Please contact TECHUP support for help.',
+                      )
+                    }
+                  >
+                    <Text nativeID="login-forgot-text">Forgot password?</Text>
+                  </Pressable>
+                </View>
+
+                {error ? (
+                  <Text nativeID="login-error" accessibilityRole="alert">
+                    {error}
+                  </Text>
+                ) : null}
+
                 <Pressable
+                  nativeID="login-submit"
                   accessibilityRole="button"
-                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                  accessibilityState={{ checked: showPassword }}
-                  hitSlop={8}
-                  onPress={() => setShowPassword((visible) => !visible)}
-                  className="h-11 w-11 items-center justify-center"
-                >
-                  {showPassword ? (
-                    <EyeOff size={19} color="#94A3B8" />
-                  ) : (
-                    <Eye size={19} color="#94A3B8" />
-                  )}
-                </Pressable>
-              </View>
-
-              <Pressable
-                accessibilityRole="button"
-                onPress={() =>
-                  Alert.alert(
-                    'Password recovery',
-                    'Password reset is not available yet. Please contact TECHUP support for help.',
-                  )
-                }
-                className="mt-3 min-h-11 self-end justify-center"
-              >
-                <Text className="text-sm font-semibold" style={{ color: '#4D9AFF' }}>
-                  Forgot password?
-                </Text>
-              </Pressable>
-
-              {error ? (
-                <Text accessibilityRole="alert" className="mt-1 text-sm text-rose-400">
-                  {error}
-                </Text>
-              ) : null}
-
-              <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-                <Pressable
-                  accessibilityRole="button"
+                  accessibilityLabel="Sign in"
                   onPress={handleLogin}
-                  onPressIn={() => animateButton(0.98)}
-                  onPressOut={() => animateButton(1)}
                   disabled={loading}
-                  className="mt-2 overflow-hidden rounded-2xl"
-                  style={{ opacity: loading ? 0.75 : 1 }}
+                  style={{ opacity: loading ? 0.72 : 1 }}
                 >
                   <LinearGradient
                     colors={['#1677FF', '#315FF4', '#7C3AED']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={{
-                      height: 56,
+                      minHeight: 54,
                       flexDirection: 'row',
                       alignItems: 'center',
                       justifyContent: 'center',
+                      borderRadius: 16,
                     }}
                   >
                     {loading ? (
                       <ActivityIndicator color="#FFFFFF" />
                     ) : (
                       <>
-                        <Text className="text-[15px] font-extrabold text-white" style={{ letterSpacing: 1.1 }}>
-                          SIGN IN
-                        </Text>
-                        <MoveRight size={19} color="#FFFFFF" style={{ marginLeft: 10 }} />
+                        <Text nativeID="login-submit-text">Sign in</Text>
+                        <ArrowRight size={18} color="#FFFFFF" />
                       </>
                     )}
                   </LinearGradient>
                 </Pressable>
-              </Animated.View>
 
-              <View className="mt-5 flex-row flex-wrap items-center justify-center">
-                <Text className="text-sm text-slate-400">Don&apos;t have an account? </Text>
-                <Link href="/register" asChild>
-                  <Pressable accessibilityRole="link" className="min-h-11 justify-center px-1">
-                    <Text className="text-sm font-bold" style={{ color: '#00C6FF' }}>
-                      Create account
-                    </Text>
-                  </Pressable>
-                </Link>
+                <View nativeID="login-create-account-row">
+                  <Text nativeID="login-create-account-caption">New to TechUp?</Text>
+                  <Link href="/register" asChild>
+                    <Pressable nativeID="login-create-account" accessibilityRole="link">
+                      <Text nativeID="login-create-account-text">Create account</Text>
+                    </Pressable>
+                  </Link>
+                </View>
+
+                <Text nativeID="login-card-footnote">
+                  By signing in, you agree to keep your account details safe.
+                </Text>
+              </View>
+              <View nativeID="login-secure-caption">
+                <ShieldCheck size={14} color="#788AA7" />
+                <Text nativeID="login-secure-caption-text">Secure access to your TechUp account</Text>
               </View>
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
+}
+
+export default function LoginScreen() {
+  return isWeb ? <ResponsiveLoginScreen /> : <NativeLoginScreen />;
 }
