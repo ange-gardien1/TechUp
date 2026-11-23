@@ -1,5 +1,6 @@
 import type { Express } from 'express';
-import { addTechnicianRepairNote, acceptCustomerSchedule, and, approveRepairQuote, assignRepairRequest, cancelRepairRequest, closeRepairRequest, completeRepair, confirmServiceFee, createRepairQuote, createRepairRequest, db, desc, eq, escalateRepairRequestToAdmin, finalizePayment, inArray, notifications, ratings, rejectIncompleteRequest, rejectCustomerSchedule, rejectRepairQuote, repairQuotes, repairRequestListColumns, repairRequests, repairUpdates, setRepairSchedule, submitRating, TECHUP_SUPPORT_PHONE, users } from '../../routes/context';
+import { addTechnicianRepairNote, acceptCustomerSchedule, and, approveRepairQuote, assignRepairRequest, cancelRepairRequest, closeRepairRequest, completeRepair, confirmServiceFee, createRepairQuote, createRepairRequest, db, desc, eq, escalateRepairRequestToAdmin, finalizePayment, inArray, ratings, rejectIncompleteRequest, rejectCustomerSchedule, rejectRepairQuote, repairQuotes, repairRequestListColumns, repairRequests, repairUpdates, setRepairSchedule, submitRating, TECHUP_SUPPORT_PHONE, users } from '../../routes/context';
+import { createNotifications } from '../../db/notification-service';
 
 export function registerRepairRoutes(app: Express) {
   app.get('/repair-requests', async (req, res) => {
@@ -174,13 +175,13 @@ export function registerRepairRoutes(app: Express) {
         .where(eq(repairRequests.id, requestId))
         .returning();
       if (request.customerId) {
-        await db.insert(notifications).values({
+        await createNotifications([{
           userId: request.customerId,
           title: 'Repair request under review',
           body: 'A manager is reviewing your repair request before assigning a technician.',
           type: 'repair',
           referenceId: request.id,
-        });
+        }]);
       }
       return res.json(reviewed);
     } catch (error) {

@@ -23,7 +23,7 @@
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/favicon.png"
+      "favicon": "./techupImage.png"
     },
     "plugins": [
       "expo-router",

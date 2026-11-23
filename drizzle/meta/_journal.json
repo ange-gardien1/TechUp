@@ -29,6 +29,13 @@
       "when": 1791628349432,
       "tag": "0003_tan_hiroim",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795458341887,
+      "tag": "0004_notification_email_outbox",
+      "breakpoints": true
     }
   ]
 }

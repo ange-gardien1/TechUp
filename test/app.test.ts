@@ -96,3 +96,25 @@ test('Google web configuration exposes only the configured client ID', async () 
     }
   }
 });
+
+test('notification email dispatcher rejects invalid cron credentials', async () => {
+  const previousCronSecret = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = 'a'.repeat(32);
+
+  try {
+    const response = await fetch(`${baseUrl}/notifications/email-dispatch`, {
+      headers: { authorization: 'Bearer invalid-dispatch-token' },
+    });
+
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), {
+      error: 'A valid dispatch credential is required.',
+    });
+  } finally {
+    if (previousCronSecret === undefined) {
+      delete process.env.CRON_SECRET;
+    } else {
+      process.env.CRON_SECRET = previousCronSecret;
+    }
+  }
+});

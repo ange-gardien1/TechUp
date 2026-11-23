@@ -23,6 +23,7 @@ export async function authenticateRequest(req: Request, res: Response, next: Nex
     || (req.path === '/auth/register' && req.method === 'POST')
     || (req.path === '/auth/google/config' && req.method === 'GET')
     || (req.path === '/auth/google' && req.method === 'POST')
+    || (req.path === '/notifications/email-dispatch' && req.method === 'GET')
     || (req.method === 'GET' && (
       req.path === '/products'
       || /^\/products\/\d+$/.test(req.path)
