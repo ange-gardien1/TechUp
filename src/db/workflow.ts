@@ -1,5 +1,6 @@
 import { db } from './client';
-import { payments, repairQuotes, repairRequests, ratings, repairUpdates, notifications, users } from './schema';
+import { payments, repairQuotes, repairRequests, ratings, repairUpdates, users } from './schema';
+import { createNotifications } from './notification-service';
 import { and, eq, inArray } from 'drizzle-orm';
 
 export async function createRepairRequest(input: {
@@ -36,7 +37,7 @@ export async function createRepairRequest(input: {
   }).returning();
 
   const managers = await db.select({ id: users.id }).from(users).where(eq(users.role, 'manager'));
-  await db.insert(notifications).values([
+  await createNotifications([
     {
       userId: input.customerId,
       title: 'Repair request submitted',
@@ -62,7 +63,7 @@ export async function assignRepairRequest(repairRequestId: number, technicianId:
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
-  await db.insert(notifications).values([
+  await createNotifications([
     { userId: request.customerId ?? 0, title: 'Technician assigned', body: 'A technician has been assigned to your request.', type: 'repair', referenceId: request.id },
     { userId: technicianId, title: 'New job assigned', body: 'A new repair request is ready for your review.', type: 'job', referenceId: request.id },
   ]);
@@ -76,13 +77,13 @@ export async function setRepairSchedule(repairRequestId: number, preferredTime: 
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
-  await db.insert(notifications).values({
+  await createNotifications([{
     userId: request.customerId ?? 0,
     title: 'Service schedule confirmed',
     body: note ? `The repair has been scheduled for ${preferredTime}. ${note}` : `The repair has been scheduled for ${preferredTime}.`,
     type: 'repair',
     referenceId: request.id,
-  });
+  }]);
 
   return request;
 }
@@ -102,13 +103,13 @@ export async function acceptCustomerSchedule(repairRequestId: number, technician
   }
 
   if (request.customerId) {
-    await db.insert(notifications).values({
+    await createNotifications([{
       userId: request.customerId,
       title: 'Service schedule confirmed',
       body: `The assigned technician accepted your preferred time: ${request.preferredTime}.`,
       type: 'repair',
       referenceId: request.id,
-    });
+    }]);
   }
 
   return request;
@@ -150,7 +151,7 @@ export async function rejectCustomerSchedule(repairRequestId: number, technician
     : managerNotifications;
 
   if (notificationsToCreate.length > 0) {
-    await db.insert(notifications).values(notificationsToCreate);
+    await createNotifications(notificationsToCreate);
   }
 
   return request;
@@ -162,13 +163,13 @@ export async function rejectIncompleteRequest(repairRequestId: number, reason: s
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
-  await db.insert(notifications).values({
+  await createNotifications([{
     userId: request.customerId ?? 0,
     title: 'Request rejected',
     body: reason || 'Your request has been rejected because the required information is missing or incomplete.',
     type: 'repair',
     referenceId: request.id,
-  });
+  }]);
 
   return request;
 }
@@ -194,13 +195,13 @@ export async function cancelRepairRequest(repairRequestId: number, customerId: n
     throw new Error('This request can no longer be stopped. Once you approve the quotation, contact the manager for help.');
   }
 
-  await db.insert(notifications).values({
+  await createNotifications([{
     userId: request.customerId ?? 0,
     title: 'Request stopped',
     body: reason || 'Your repair request has been stopped and the company has been notified.',
     type: 'repair',
     referenceId: request.id,
-  });
+  }]);
 
   return request;
 }
@@ -214,7 +215,7 @@ export async function escalateRepairRequestToAdmin(repairRequestId: number, reas
   const admins = await db.select().from(users).where(eq(users.role, 'admin'));
 
   if (admins.length > 0) {
-    await db.insert(notifications).values(
+    await createNotifications(
       admins.map((admin) => ({
         userId: admin.id,
         title: 'Manager escalation',
@@ -234,13 +235,13 @@ export async function confirmServiceFee(repairRequestId: number) {
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
-  await db.insert(notifications).values({
+  await createNotifications([{
     userId: request.customerId ?? 0,
     title: 'Service fee paid',
     body: 'The service fee has been confirmed. The technician can now proceed.',
     type: 'payment',
     referenceId: request.id,
-  });
+  }]);
 
   return request;
 }
@@ -259,7 +260,7 @@ export async function addTechnicianRepairNote(repairRequestId: number, technicia
 
   const managers = await db.select({ id: users.id }).from(users).where(eq(users.role, 'manager'));
   if (managers.length > 0) {
-    await db.insert(notifications).values(managers.map((manager) => ({
+    await createNotifications(managers.map((manager) => ({
       userId: manager.id,
       title: 'Technician update received',
       body: `The technician added a private update to repair request #${repairRequestId}.`,
@@ -317,13 +318,13 @@ export async function createRepairQuote(
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
-  await db.insert(notifications).values({
+  await createNotifications([{
     userId: request.customerId ?? 0,
     title: 'Repair quote ready',
     body: `A repair quote has been prepared for ${request.deviceType || 'your device'} for ${total.toLocaleString()} RWF. Please review and approve or reject it.`,
     type: 'quote',
     referenceId: request.id,
-  });
+  }]);
 
   return { quote, request };
 }
@@ -338,21 +339,21 @@ export async function approveRepairQuote(repairRequestId: number) {
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
-  await db.insert(notifications).values({
+  await createNotifications([{
     userId: request.customerId ?? 0,
     title: 'Quote approved',
     body: 'The repair quote was approved and work has started.',
     type: 'repair',
     referenceId: request.id,
-  });
+  }]);
   if (request.technicianId) {
-    await db.insert(notifications).values({
+    await createNotifications([{
       userId: request.technicianId,
       title: 'Customer approved the quote',
       body: 'The customer approved the repair quote. You can begin the repair.',
       type: 'job',
       referenceId: request.id,
-    });
+    }]);
   }
 
   return request;
@@ -368,21 +369,21 @@ export async function rejectRepairQuote(repairRequestId: number) {
     .where(eq(repairRequests.id, repairRequestId))
     .returning();
 
-  await db.insert(notifications).values({
+  await createNotifications([{
     userId: request.customerId ?? 0,
     title: 'Quote rejected',
     body: 'The repair quote was rejected and the request was sent back for review.',
     type: 'repair',
     referenceId: request.id,
-  });
+  }]);
   if (request.technicianId) {
-    await db.insert(notifications).values({
+    await createNotifications([{
       userId: request.technicianId,
       title: 'Customer rejected the quote',
       body: 'The customer rejected the repair quote. Review the request with your manager.',
       type: 'job',
       referenceId: request.id,
-    });
+    }]);
   }
 
   return request;
@@ -429,7 +430,7 @@ export async function completeRepair(repairRequestId: number, notes: string, pho
     }))),
   ];
   if (notificationsToCreate.length > 0) {
-    await db.insert(notifications).values(notificationsToCreate);
+    await createNotifications(notificationsToCreate);
   }
 
   return request;
@@ -449,13 +450,13 @@ export async function closeRepairRequest(repairRequestId: number, managerId: num
     isCustomerVisible: false,
   });
 
-  await db.insert(notifications).values({
+  await createNotifications([{
     userId: request.customerId ?? 0,
     title: 'Repair closed',
     body: 'Your repair request has been closed and marked complete. You can now rate the technician.',
     type: 'repair',
     referenceId: request.id,
-  });
+  }]);
 
   return request;
 }
@@ -474,6 +475,15 @@ export async function finalizePayment(repairRequestId: number, amount: number, p
     status: 'paid',
     transactionReference: `txn-${repairRequestId}-${Date.now()}`,
   });
+
+  await createNotifications([{
+    userId: request.customerId ?? 0,
+    title: 'Final payment received',
+    body: `Your final payment of ${amount.toLocaleString()} RWF has been recorded.`,
+    type: 'payment',
+    referenceId: request.id,
+    dedupeKey: `repair:${request.id}:final-payment`,
+  }]);
 
   return request;
 }

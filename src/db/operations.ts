@@ -278,9 +278,37 @@ async function initializeDatabaseOnce() {
       body TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'info',
       reference_id INTEGER,
+      dedupe_key TEXT,
       is_read BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
+  `);
+  await db.execute(sql`
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedupe_key_unique
+    ON notifications (dedupe_key);
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS notification_email_deliveries (
+      id SERIAL PRIMARY KEY,
+      notification_id INTEGER REFERENCES notifications(id) ON DELETE CASCADE NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      locked_at TIMESTAMPTZ,
+      last_error TEXT,
+      provider_message_id TEXT,
+      sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS notification_email_deliveries_queue_idx
+    ON notification_email_deliveries (status, next_attempt_at);
   `);
 
   await db.execute(sql`

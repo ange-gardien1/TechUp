@@ -1,4 +1,4 @@
-import { boolean, doublePrecision, integer, jsonb, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, doublePrecision, index, integer, jsonb, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -197,9 +197,26 @@ export const notifications = pgTable('notifications', {
   body: text('body').notNull(),
   type: text('type').notNull().default('info'),
   referenceId: integer('reference_id'),
+  dedupeKey: text('dedupe_key').unique(),
   isRead: boolean('is_read').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const notificationEmailDeliveries = pgTable('notification_email_deliveries', {
+  id: serial('id').primaryKey(),
+  notificationId: integer('notification_id').references(() => notifications.id, { onDelete: 'cascade' }).notNull().unique(),
+  status: text('status').notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).defaultNow().notNull(),
+  lockedAt: timestamp('locked_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  providerMessageId: text('provider_message_id'),
+  sentAt: timestamp('sent_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('notification_email_deliveries_queue_idx').on(table.status, table.nextAttemptAt),
+]);
 
 export const ratings = pgTable('ratings', {
   id: serial('id').primaryKey(),
